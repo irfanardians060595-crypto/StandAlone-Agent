@@ -1,0 +1,643 @@
+// ============================================================================
+// CHAT API ROUTE - POST /api/chat
+// ============================================================================
+// This is the main streaming chat endpoint.
+//
+// FLOW:
+// 1. Client sends a new message via useChat hook
+// 2. Server loads chat history from storage
+// 3. Validates message and tools
+// 4. Streams AI response back to client
+// 5. Saves updated chat to storage when complete
+//
+// FEATURES:
+// - Streaming responses (Server-Sent Events)
+// - Multi-step tool calling
+// - Web search (optional, via OpenAI built-in)
+// - Reasoning summaries (o-series models)
+// - Chat persistence (file-based dev, database in production)
+//
+// SECURITY:
+// - Model allowlist validation (prevents arbitrary model access)
+// - Tool validation (ensures type safety)
+// ============================================================================
+
+// ============================================================================
+// IMPORTS
+// ============================================================================
+
+import {
+  convertToModelMessages,
+  createIdGenerator,
+  generateId,
+  stepCountIs,
+  streamText,
+  validateUIMessages,
+  TypeValidationError,
+  type Tool,
+  type UIMessage,
+} from "ai";
+import { openai } from "@ai-sdk/openai";
+
+import { assertAllowedModelId, getDefaultModelId } from "@/lib/ai/models";
+import { getModel } from "@/lib/ai/provider";
+import { SYSTEM_PROMPT } from "@/lib/ai/system-prompt";
+import { tools } from "@/lib/ai/tools";
+import { loadChat, saveChat } from "@/lib/chat/server/fileChatStore";
+import {
+  getParentId,
+  mergeMessagesById,
+  ROOT_PARENT_ID,
+  withBranchingMetadata,
+} from "@/lib/chat/branching";
+import type { ExtendedUIMessage } from "@/lib/chat/message-types";
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+/**
+ * Maximum duration for streaming responses (Vercel serverless limit).
+ * Increase this if you need longer-running requests.
+ */
+export const maxDuration = 30; // seconds
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+/**
+ * Request body structure from client (useChat hook).
+ */
+type ChatRequestBody = {
+  /**
+   * Mode for this request:
+   * - append: add a new user message under `parentId` and generate an assistant reply
+   * - regenerate: generate a new assistant reply for an existing user message `parentId`
+   */
+  mode?: "append" | "regenerate";
+
+  /**
+   * New message from user (required for mode=append).
+   * When mode=regenerate, this may still be present (client sends last message),
+   * but is ignored for persistence.
+   */
+  message?: UIMessage;
+
+  /** Chat ID for loading/saving history */
+  id: string;
+
+  /** Optional model override (defaults to env AI_MODEL or "openai/gpt-5") */
+  model?: string;
+
+  /** Whether to enable web search (OpenAI built-in) */
+  useSearch?: boolean;
+
+  /**
+   * Optional client-visible path for fallback when the server hasn't persisted
+   * the latest branch yet (e.g., fast follow-up messages).
+   */
+  history?: UIMessage[];
+
+  /**
+   * In append mode: the parent message id (assistant) that this user message should attach to.
+   * In regenerate mode: the target user message id to regenerate an assistant reply for.
+   */
+  parentId?: string | null;
+};
+
+const NANO_BANANA_PRO_MODEL_ID = "gateway/google/gemini-3-pro-image";
+
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
+
+/**
+ * Handle streaming chat requests.
+ *
+ * This function orchestrates the entire chat flow:
+ * - Validates inputs
+ * - Loads chat history
+ * - Configures AI model and tools
+ * - Streams response to client
+ * - Saves updated conversation
+ */
+export async function POST(req: Request) {
+  try {
+    // ──────────────────────────────────────────────────────────────────────
+    // 1. PARSE AND VALIDATE REQUEST
+    // ──────────────────────────────────────────────────────────────────────
+    const body = (await req.json()) as ChatRequestBody;
+
+    console.log("[API /api/chat] POST request received", {
+      chatId: body.id,
+      hasMessage: Boolean(body.message),
+      model: body.model,
+      useSearch: body.useSearch
+    });
+
+    // Validate chat ID
+    const id = body.id?.trim();
+    if (!id) {
+      console.error("[API /api/chat] Missing chat ID");
+      return Response.json({ error: "Missing chat id" }, { status: 400 });
+    }
+
+    // Validate message
+    const mode = body.mode ?? "append";
+    const incomingMessage = body.message;
+    if (mode === "append" && !incomingMessage) {
+      console.error("[API /api/chat] Missing message for append");
+      return Response.json({ error: "Missing message" }, { status: 400 });
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 2. LOAD CHAT HISTORY
+    // ──────────────────────────────────────────────────────────────────────
+    // Client sends only the new message; server loads full history from storage.
+    // This keeps client payloads small and ensures consistency.
+    let storedMessages: UIMessage[] = [];
+    try {
+      storedMessages = await loadChat(id);
+    } catch (err) {
+      console.warn("[API /api/chat] Failed to load chat history, starting fresh:", err);
+      storedMessages = [];
+    }
+
+    console.log(
+      `[API /api/chat] Loaded ${storedMessages.length} previous messages for chat ${id}`
+    );
+
+    // Ensure every stored message has a parentId. For legacy (linear) chats, infer it
+    // from array order. For already-branched chats, we preserve existing parentId.
+    const normalizedStoredMessages: UIMessage[] = storedMessages.map((m, i) => {
+      const hasParent = getParentId(m) !== undefined;
+      if (hasParent) return m;
+      const inferredParentId: string | null =
+        i === 0 ? ROOT_PARENT_ID : storedMessages[i - 1]?.id ?? ROOT_PARENT_ID;
+      return withBranchingMetadata(m, { parentId: inferredParentId });
+    });
+
+    const clientHistory = Array.isArray(body.history) ? body.history : [];
+    const normalizedClientMessages: UIMessage[] = clientHistory.map((m, i) => {
+      const hasParent = getParentId(m) !== undefined;
+      if (hasParent) return m;
+      const inferredParentId: string | null =
+        i === 0 ? ROOT_PARENT_ID : clientHistory[i - 1]?.id ?? ROOT_PARENT_ID;
+      return withBranchingMetadata(m, { parentId: inferredParentId });
+    });
+
+    const attachParentId =
+      typeof body.parentId === "string"
+        ? body.parentId
+        : body.parentId === null
+          ? null
+          : null;
+
+    // If append, build the new user message we will attach under `attachParentId`.
+    const userMessageForAppend: UIMessage | null =
+      mode === "append"
+        ? (() => {
+            const m = incomingMessage!;
+            const role = m.role ?? "user";
+            if (role !== "user") {
+              throw new Error("Append requires a user message");
+            }
+            const withId: UIMessage = { ...m, id: m.id || generateId(), role: "user" };
+            const withTimestamp: ExtendedUIMessage = {
+              ...withId,
+              timestamp:
+                (withId as UIMessage & { timestamp?: number }).timestamp || Date.now(),
+            };
+            return withBranchingMetadata(withTimestamp, { parentId: attachParentId }) as ExtendedUIMessage;
+          })()
+        : null;
+
+    // Resolve the user message we are generating a reply for.
+    const targetUserId =
+      mode === "append"
+        ? userMessageForAppend!.id
+        : typeof body.parentId === "string"
+          ? body.parentId
+          : null;
+
+    if (!targetUserId) {
+      return Response.json({ error: "Missing parentId" }, { status: 400 });
+    }
+
+    // Build a prompt path by walking parent pointers from the target user message
+    // back to the root, then reversing.
+    const storedIds = new Set(normalizedStoredMessages.map((m) => m.id));
+    const shouldUseClientHistory =
+      normalizedClientMessages.length > 0 &&
+      ((mode === "append" &&
+        typeof attachParentId === "string" &&
+        !storedIds.has(attachParentId)) ||
+        (mode === "regenerate" &&
+          typeof targetUserId === "string" &&
+          !storedIds.has(targetUserId)));
+
+    const historyForPrompt = shouldUseClientHistory
+      ? mergeMessagesById(normalizedStoredMessages, normalizedClientMessages)
+      : normalizedStoredMessages;
+
+    const messageById = new Map<string, UIMessage>();
+    for (const m of historyForPrompt) messageById.set(m.id, m);
+    if (userMessageForAppend) messageById.set(userMessageForAppend.id, userMessageForAppend);
+
+    const buildPathEndingAt = (leafId: string): UIMessage[] => {
+      const path: UIMessage[] = [];
+      const seen = new Set<string>();
+      let currentId: string | null = leafId;
+      while (currentId) {
+        if (seen.has(currentId)) break;
+        seen.add(currentId);
+
+        const msg = messageById.get(currentId);
+        if (!msg) break;
+        path.push(msg);
+
+        const parentId = getParentId(msg);
+        currentId = typeof parentId === "string" ? parentId : null;
+      }
+      return path.reverse();
+    };
+
+    const promptPathMessages: UIMessage[] =
+      mode === "append"
+        ? (() => {
+            // Include the parent chain (assistant) then the new user message.
+            const parentChain = attachParentId ? buildPathEndingAt(attachParentId) : [];
+            return [...parentChain, userMessageForAppend!];
+          })()
+        : buildPathEndingAt(targetUserId);
+
+    const lastPromptMessage = promptPathMessages.at(-1);
+    if (!lastPromptMessage || lastPromptMessage.role !== "user") {
+      return Response.json(
+        { error: "Regeneration target must be a user message" },
+        { status: 400 }
+      );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 3. CONFIGURE MODEL AND FEATURES
+    // ──────────────────────────────────────────────────────────────────────
+    const requestedModel = body.model?.trim() || getDefaultModelId();
+    const useSearch = Boolean(body.useSearch);
+    const isNanoBananaPro = requestedModel === NANO_BANANA_PRO_MODEL_ID;
+
+    // SECURITY: Validate model against allowlist (prevents arbitrary model access)
+    assertAllowedModelId(requestedModel);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 4. CONFIGURE REASONING (O-SERIES MODELS)
+    // ──────────────────────────────────────────────────────────────────────
+    // Reasoning features for o-series models (o1, o4-mini, etc.).
+    // Environment variables:
+    // - ENABLE_REASONING=true - Enable reasoning summaries
+    // - OPENAI_REASONING_SUMMARY=auto|detailed - Detail level
+    // - OPENAI_REASONING_EFFORT=high|medium|low - Effort level
+
+    const enableReasoning =
+      (process.env.ENABLE_REASONING ?? "").toLowerCase() === "true";
+
+    // OpenAI reasoning configuration
+    // When enabled, reasoning streams as part.type === "reasoning"
+    // Ref: https://ai-sdk.dev/providers/ai-sdk-providers/openai
+    const openaiReasoningSummary = (process.env.OPENAI_REASONING_SUMMARY?.trim() ||
+      "auto") as "auto" | "detailed";
+    const openaiReasoningEffort = (process.env.OPENAI_REASONING_EFFORT?.trim() ||
+      "high") as "minimal" | "low" | "medium" | "high" | "none" | "xhigh";
+
+    const shouldEnableOpenAIReasoningSummary =
+      enableReasoning &&
+      // OpenAI reasoning models: gpt-5 and o-series (o1, o4-mini, etc.)
+      (requestedModel.startsWith("openai/gpt-5") ||
+        requestedModel.startsWith("openai/o"));
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 5. CONFIGURE WEB SEARCH (OPTIONAL)
+    // ──────────────────────────────────────────────────────────────────────
+    // OpenAI provides a built-in web_search tool for GPT models.
+    // We only enable it when the user toggles search in the UI.
+
+    const canUseOpenAIWebSearch =
+      requestedModel.startsWith("openai/") ||
+      requestedModel.startsWith("gateway/openai/");
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 6. ASSEMBLE TOOLS
+    // ──────────────────────────────────────────────────────────────────────
+    // Combine our custom tools with optional provider tools (like web_search).
+    // Type casting needed for AI SDK's tool validation.
+
+    const requestTools: Record<string, Tool<unknown, unknown>> = {
+      // Custom tools from src/lib/ai/tools/index.ts
+      ...(tools as unknown as Record<string, Tool<unknown, unknown>>),
+
+      // OpenAI web search (conditional)
+      ...(useSearch && canUseOpenAIWebSearch
+        ? ({
+            web_search: openai.tools.webSearch() as unknown as Tool<
+              unknown,
+              unknown
+            >,
+          } as const)
+        : {}),
+    };
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 7. VALIDATE MESSAGES
+    // ──────────────────────────────────────────────────────────────────────
+    // Validate that tool calls in the *prompt path* match current tool schemas.
+    // We validate the path only, so unrelated branches cannot break generation.
+    let validatedPromptPath: UIMessage[];
+    try {
+      validatedPromptPath = await validateUIMessages({
+        messages: promptPathMessages,
+        tools: requestTools,
+      });
+    } catch (err) {
+      if (err instanceof TypeValidationError) {
+        console.error("[API /api/chat] validateUIMessages failed for prompt path:", err);
+        return Response.json(
+          { error: "Chat history is incompatible with current tool schemas." },
+          { status: 400 }
+        );
+      }
+      throw err;
+    }
+
+    type AnyPart = UIMessage["parts"][number];
+    type FilePart = AnyPart & {
+      type: "file";
+      filename?: string;
+      mediaType?: string;
+      url?: string;
+    };
+    const isFilePart = (p: AnyPart): p is FilePart => p.type === "file";
+
+    // Some models/providers can accept PDFs as file parts (cookbook pattern), but not all.
+    // We keep the original UIMessage parts for rendering + persistence, and only strip file
+    // parts from the *model prompt* when the current provider/model likely can't handle them.
+    //
+    // Ref: Chat with PDFs cookbook + file prompt cookbook
+    // - https://ai-sdk.dev/cookbook/next/chat-with-pdf
+    // - https://ai-sdk.dev/cookbook/next/generate-object-with-file-prompt
+    //
+    // Strategy:
+    // - Always allow image/* and text/*.
+    // - Allow application/pdf only for providers/models we expect to support it.
+    // - For everything else, strip + add a note so the assistant asks for pasted text.
+    const providerSupportsPdf =
+      requestedModel.startsWith("openai/") ||
+      requestedModel.startsWith("gateway/openai/") ||
+      requestedModel.startsWith("gateway/google/") ||
+      requestedModel.startsWith("gateway/anthropic/");
+
+    const isSupportedFileForModel = (p: FilePart) => {
+      const mt = p.mediaType ?? "";
+      if (mt.startsWith("image/")) return true;
+      if (mt.startsWith("text/")) return true;
+      if (mt === "application/pdf") return providerSupportsPdf;
+      return false;
+    };
+
+    const modelReadyMessages: UIMessage[] = validatedPromptPath.map((m) => {
+      const parts = m.parts ?? [];
+      const unsupportedFiles = parts
+        .filter(isFilePart)
+        .filter((p) => !isSupportedFileForModel(p));
+
+      const supportedParts = parts.filter(
+        (p) => !isFilePart(p) || isSupportedFileForModel(p)
+      );
+
+      if (m.role === "user" && unsupportedFiles.length > 0) {
+        const summary = unsupportedFiles
+          .map((f) => `${f.filename ?? "file"} (${f.mediaType ?? "unknown"})`)
+          .join(", ");
+        supportedParts.push({
+          type: "text",
+          text:
+            `\n\n[Attachment received: ${summary}. ` +
+            `This file type isn't automatically readable here. ` +
+            `Please ask the user to paste the relevant text or convert it to a supported format.]\n`,
+        });
+      }
+
+      return { ...m, parts: supportedParts };
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 8. BUILD SYSTEM PROMPT
+    // ──────────────────────────────────────────────────────────────────────
+    // Add search-specific instructions when search is enabled
+    const system =
+      SYSTEM_PROMPT +
+      (useSearch && canUseOpenAIWebSearch
+        ? "\n\nWeb search is enabled. Use the web_search tool when you need current information or real-time data."
+        : "");
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 9. STREAM AI RESPONSE
+    // ──────────────────────────────────────────────────────────────────────
+    const result = streamText({
+      // Model instance from provider
+      model: getModel(requestedModel),
+
+      // System instructions
+      system,
+
+      // Convert UI messages to model format
+      messages: await convertToModelMessages(modelReadyMessages),
+
+      // Available tools
+      tools: requestTools,
+
+      // ──────────────────────────────────────────────────────────────────
+      // PROVIDER-SPECIFIC OPTIONS
+      // ──────────────────────────────────────────────────────────────────
+      // OpenAI reasoning configuration (o-series models):
+      // - reasoningEffort: Controls compute spend on reasoning
+      // - reasoningSummary: Enables visible "thinking" in stream
+      providerOptions: shouldEnableOpenAIReasoningSummary
+        ? {
+            openai: {
+              reasoningSummary: openaiReasoningSummary,
+              ...(requestedModel.startsWith("openai/o")
+                ? { reasoningEffort: openaiReasoningEffort }
+                : {}),
+            },
+          }
+        : undefined,
+
+      // ──────────────────────────────────────────────────────────────────
+      // MULTI-STEP TOOL CALLING
+      // ──────────────────────────────────────────────────────────────────
+      // Cap tool calling at 5 steps to prevent infinite loops.
+      // The AI can use tools iteratively but won't run forever.
+      stopWhen: stepCountIs(5),
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 10. ENSURE STREAM COMPLETION (FOR PERSISTENCE)
+    // ──────────────────────────────────────────────────────────────────────
+    // Continue streaming even if client disconnects, so onFinish() saves the chat.
+    // This prevents data loss when users navigate away mid-response.
+    result.consumeStream(); // no await - runs in background
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 11. RETURN STREAMING RESPONSE
+    // ──────────────────────────────────────────────────────────────────────
+    // Convert to UI message stream (includes reasoning + sources for AI Elements)
+    return result.toUIMessageStreamResponse({
+      // Enable reasoning parts (o-series models)
+      sendReasoning: enableReasoning,
+
+      // Enable source citations (web search)
+      sendSources: true,
+
+      // Original messages for diff detection
+      originalMessages: validatedPromptPath,
+
+      // Generate stable server-side IDs for persistence
+      generateMessageId: createIdGenerator({ prefix: "msg", size: 16 }),
+
+      // Save chat when stream completes
+      onFinish: async ({ messages: finishedMessages }) => {
+        console.log(
+          `[API /api/chat] onFinish called for chat ${id}, saving ${finishedMessages.length} messages`
+        );
+
+        // Merge: keep the full stored tree, and add the newly generated messages.
+        // Ensure IDs, timestamps, model info, and parentId metadata are present.
+        const triggerUserIdForAssistant = targetUserId;
+        const storedIds = new Set(normalizedStoredMessages.map((m) => m.id));
+
+        let finishedWithMeta: ExtendedUIMessage[] = finishedMessages.map((msg) => {
+          const base: ExtendedUIMessage = {
+            ...msg,
+            id: msg.id || generateId(),
+            timestamp: (msg as typeof msg & { timestamp?: number }).timestamp || Date.now(),
+          };
+
+          const isNew = !storedIds.has(base.id);
+
+          if (msg.role === "assistant" && isNew) {
+            const withParent = withBranchingMetadata(base, {
+              parentId: triggerUserIdForAssistant,
+            });
+            return { ...withParent, model: requestedModel } as ExtendedUIMessage;
+          }
+
+          // For append, the user message already has parentId set; for legacy messages
+          // coming from the stream, preserve as-is.
+          return base;
+        });
+
+        // Always include the append message in the persisted set (even if the stream omits it).
+        if (userMessageForAppend) {
+          finishedWithMeta = mergeMessagesById([userMessageForAppend], finishedWithMeta) as ExtendedUIMessage[];
+        }
+
+        let messagesWithIds = mergeMessagesById(normalizedStoredMessages, finishedWithMeta) as ExtendedUIMessage[];
+
+        // Nano Banana Pro (Gemini image model) returns images in `result.files` as Uint8Array
+        // (see Vercel docs). For persistence we normalize any image bytes into data URLs so
+        // our chat store can store them via the attachment pipeline.
+        //
+        // Ref: https://vercel.com/docs/ai-gateway/image-generation/ai-sdk#nano-banana-pro-google/gemini-3-pro-image
+        if (isNanoBananaPro) {
+          const toDataUrl = (uint8Array: Uint8Array, mediaType?: string) => {
+            const mt = mediaType?.trim() || "image/png";
+            const b64 = Buffer.from(uint8Array).toString("base64");
+            return `data:${mt};base64,${b64}`;
+          };
+
+          // 1) Normalize any `file` parts that include uint8Array but no URL.
+          messagesWithIds = messagesWithIds.map((m) => {
+            const parts = (m.parts ?? []).map((p) => {
+              if (p.type !== "file") return p;
+              const maybe = p as typeof p & { uint8Array?: Uint8Array };
+              if (typeof maybe.url === "string" && maybe.url.length > 0) return p;
+              if (maybe.uint8Array && maybe.mediaType?.startsWith("image/")) {
+                return {
+                  ...p,
+                  url: toDataUrl(maybe.uint8Array, maybe.mediaType),
+                };
+              }
+              return p;
+            });
+            return { ...m, parts };
+          });
+
+          // 2) If the stream didn't include file parts, append images from `result.files`.
+          // This keeps the UI + persistence consistent.
+          try {
+            const finalResult = await result;
+            const files = await (finalResult as unknown as { files?: unknown })
+              .files;
+            const imageFiles = (Array.isArray(files) ? files : []).filter(
+              (f) => f.mediaType?.startsWith("image/") && f.uint8Array
+            );
+
+            if (imageFiles.length > 0) {
+              const lastIdx = messagesWithIds.length - 1;
+              const last = messagesWithIds[lastIdx];
+              if (last && last.role === "assistant") {
+                const alreadyHasImages = (last.parts ?? []).some(
+                  (p) =>
+                    p.type === "file" &&
+                    typeof (p as { mediaType?: string }).mediaType === "string" &&
+                    (p as { mediaType?: string }).mediaType!.startsWith("image/")
+                );
+
+                if (!alreadyHasImages) {
+                  const now = Date.now();
+                  const newParts = [
+                    ...(last.parts ?? []),
+                    ...imageFiles.map((f, index) => {
+                      const ext = f.mediaType?.split("/")[1] || "png";
+                      return {
+                        type: "file" as const,
+                        mediaType: f.mediaType,
+                        filename: `generated-${now}-${index}.${ext}`,
+                        url: toDataUrl(f.uint8Array!, f.mediaType),
+                      };
+                    }),
+                  ];
+                  messagesWithIds[lastIdx] = { ...last, parts: newParts };
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("[API /api/chat] Failed to read Nano Banana files:", err);
+          }
+        }
+
+        try {
+          await saveChat({ id, messages: messagesWithIds });
+          console.log(
+            `[API /api/chat] Chat ${id} saved successfully with ${messagesWithIds.length} messages`
+          );
+        } catch (err) {
+          // Never fail the request because persistence failed.
+          console.error("[API /api/chat] saveChat failed:", err);
+        }
+      },
+    });
+  } catch (err) {
+    // ──────────────────────────────────────────────────────────────────────
+    // ERROR HANDLING
+    // ──────────────────────────────────────────────────────────────────────
+    // Common errors:
+    // - Missing API keys (check .env.local)
+    // - Invalid model ID (check allowlist in src/lib/ai/models.ts)
+    // - Network issues (check provider status)
+    const message =
+      err instanceof Error ? err.message : "Unknown error in /api/chat";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
