@@ -5,6 +5,7 @@ export const ROBINHOOD_CHAIN = {
   currencySymbol: "ETH",
   rpcUrl: "https://robinhood-mainnet.g.alchemy.com/v2",
   explorerUrl: "https://robinhoodchain.blockscout.com",
+  apiUrl: "https://api.blockscout.com/4663/api/v2",
 } as const;
 
 /** Server-only: never import this helper into a Client Component. */

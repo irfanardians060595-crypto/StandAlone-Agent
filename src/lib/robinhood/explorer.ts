@@ -38,13 +38,30 @@ function nestedAddress(value: unknown): string | null {
 }
 
 async function fetchExplorer(path: string): Promise<unknown> {
+  const apiKey = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
+  if (!apiKey) {
+    throw new ExplorerError(
+      "Blockscout API is not configured. Add BLOCKSCOUT_PRO_API_KEY to the server environment and restart the app.",
+      503,
+    );
+  }
+
   const requestOptions = {
-    headers: { accept: "application/json" },
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
     // Next.js supports a short upstream cache for public indexed data.
     next: { revalidate: 15 },
     signal: AbortSignal.timeout(8_000),
   } as RequestInit & { next: { revalidate: number } };
-  const response = await fetch(`${ROBINHOOD_CHAIN.explorerUrl}/api/v2${path}`, requestOptions);
+  const response = await fetch(`${ROBINHOOD_CHAIN.apiUrl}${path}`, requestOptions);
+  if (response.status === 401 || response.status === 403) {
+    throw new ExplorerError(
+      "Blockscout denied the API request. Check that BLOCKSCOUT_PRO_API_KEY is valid and enabled for Robinhood Chain.",
+      response.status,
+    );
+  }
   if (response.status === 404) throw new ExplorerError("No matching record was found on the Robinhood Chain explorer.", 404);
   if (response.status === 429) throw new ExplorerError("The explorer is rate-limiting requests. Wait briefly and retry.", 429);
   if (!response.ok) throw new ExplorerError(`The explorer returned HTTP ${response.status}.`);
