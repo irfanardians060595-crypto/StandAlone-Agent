@@ -284,6 +284,8 @@
 .sa-nav-actions { display: flex; align-items: center; gap: 17px; }
 .sa-local-pill { display: inline-flex; align-items: center; gap: 7px; color: #757188; font-size: 11px; white-space: nowrap; }
 .sa-local-pill span, .sa-status-indicator, .sa-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #65caa5; box-shadow: 0 0 0 4px rgba(101,202,165,.12); }
+.sa-nav-chain-cta { display:inline-flex; align-items:center; justify-content:center; gap:10px; border:1px solid #f5f5f5; border-radius:9px; padding:12px 16px; color:#070707 !important; background:#f5f5f5; font-weight:650; font-size:12px; text-decoration:none; white-space:nowrap; transition:transform .2s ease, background .2s ease; }
+.sa-nav-chain-cta:hover { transform:translateY(-2px); background:#d9d9d9; }
 .sa-nav-cta, .sa-primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 12px; padding: 12px 16px; color: white; background: linear-gradient(110deg, #7563ef, #5944d4); box-shadow: 0 7px 18px rgba(98, 78, 220, .21), inset 0 1px 0 rgba(255,255,255,.2); font-weight: 650; font-size: 12px; text-decoration: none; transition: transform .2s ease, box-shadow .2s ease; white-space: nowrap; }
 .sa-nav-cta:hover, .sa-primary-button:hover { transform: translateY(-2px); box-shadow: 0 11px 24px rgba(98, 78, 220, .28), inset 0 1px 0 rgba(255,255,255,.2); }
 .sa-hero { max-width: 1240px; margin: 0 auto; padding: 93px 30px 75px; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 40px; align-items: center; }
@@ -400,7 +402,7 @@
 @keyframes sa-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 @media (max-width: 1100px) { .sa-hero { grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: 23px; padding-top: 75px; } .sa-hero h1 { font-size: clamp(47px,5.5vw,64px); } .sa-features,.sa-bottom-cta,.sa-capability-strip,.sa-footer { margin-left: 24px; margin-right: 24px; } .sa-float-top { right: -8px; } .sa-float-bottom { left: -8px; } }
 @media (max-width: 820px) { .sa-nav { padding: 13px 18px; } .sa-nav-links { display: none; } .sa-nav-actions { margin-left: auto; } .sa-local-pill { display: none; } .sa-hero { grid-template-columns: 1fr; padding: 65px 22px 54px; gap: 28px; } .sa-hero-copy { max-width: 650px; margin: auto; } .sa-hero h1 { font-size: clamp(48px, 10vw, 72px); } .sa-hero-description { max-width: 580px; } .sa-product-stage { max-width: 670px; width: 100%; margin: auto; padding: 22px 0; } .sa-window { transform: none; } .sa-capability-strip { flex-wrap: wrap; justify-content: center; padding: 18px; } .sa-capability-strip > p { width: 100%; order: 3; } .sa-features { padding: 75px 0; } .sa-section-heading { align-items: flex-start; flex-direction: column; gap: 14px; } .sa-section-heading > p { max-width: 540px; } .sa-bottom-cta { flex-wrap: wrap; gap: 17px; padding: 30px; } .sa-cta-mark { width: 46px; height: 46px; } .sa-cta-copy { flex-basis: calc(100% - 70px); } .sa-bottom-cta > .sa-primary-button { margin-left: 63px; } .sa-footer { flex-wrap: wrap; } }
-@media (max-width: 560px) { .sa-brand-name { font-size: 14px; } .sa-brand-mark { width: 34px; height: 34px; } .sa-nav-cta { font-size: 10px; padding: 10px 11px; } .sa-hero { padding-left: 17px; padding-right: 17px; padding-top: 49px; } .sa-eyebrow { font-size: 8px; } .sa-hero h1 { font-size: 48px; margin-top: 22px; } .sa-hero-description { font-size: 13px; } .sa-hero-actions { align-items: stretch; flex-direction: column; } .sa-hero-actions .sa-primary-button, .sa-secondary-button { justify-content: center; } .sa-proof-row { margin-top: 28px; } .sa-window-body { grid-template-columns: 1fr; min-height: 0; } .sa-preview-sidebar { display: none; } .sa-preview-chat { padding: 19px 14px 12px; min-height: 405px; } .sa-chat-heading h3 { font-size: 18px; } .sa-float-card { padding: 8px; gap: 6px; } .sa-float-top { right: -5px; top: 0; } .sa-float-bottom { left: -5px; bottom: 0; } .sa-float-icon { width: 27px; height: 27px; } .sa-float-card strong { font-size: 8px; } .sa-float-card small { font-size: 7px; } .sa-features,.sa-bottom-cta,.sa-capability-strip,.sa-footer { margin-left: 16px; margin-right: 16px; } .sa-feature-grid { grid-template-columns: 1fr; } .sa-feature-card { min-height: 205px; } .sa-features { padding: 68px 0; } .sa-section-heading h2 { font-size: 38px; } .sa-bottom-cta { padding: 24px 20px; } .sa-cta-copy { flex-basis: calc(100% - 65px); } .sa-cta-copy h2 { font-size: 34px; } .sa-bottom-cta > .sa-primary-button { margin-left: 0; width: 100%; } .sa-footer { justify-content: center; text-align: center; } .sa-footer > p { width: 100%; order: 3; } .sa-footer > div { width: 100%; justify-content: center; } }
+@media (max-width: 560px) { .sa-brand-name { font-size: 14px; } .sa-brand-mark { width: 34px; height: 34px; } .sa-nav-cta, .sa-nav-chain-cta { font-size: 10px; padding: 10px 11px; } .sa-hero { padding-left: 17px; padding-right: 17px; padding-top: 49px; } .sa-eyebrow { font-size: 8px; } .sa-hero h1 { font-size: 48px; margin-top: 22px; } .sa-hero-description { font-size: 13px; } .sa-hero-actions { align-items: stretch; flex-direction: column; } .sa-hero-actions .sa-primary-button, .sa-secondary-button { justify-content: center; } .sa-proof-row { margin-top: 28px; } .sa-window-body { grid-template-columns: 1fr; min-height: 0; } .sa-preview-sidebar { display: none; } .sa-preview-chat { padding: 19px 14px 12px; min-height: 405px; } .sa-chat-heading h3 { font-size: 18px; } .sa-float-card { padding: 8px; gap: 6px; } .sa-float-top { right: -5px; top: 0; } .sa-float-bottom { left: -5px; bottom: 0; } .sa-float-icon { width: 27px; height: 27px; } .sa-float-card strong { font-size: 8px; } .sa-float-card small { font-size: 7px; } .sa-features,.sa-bottom-cta,.sa-capability-strip,.sa-footer { margin-left: 16px; margin-right: 16px; } .sa-feature-grid { grid-template-columns: 1fr; } .sa-feature-card { min-height: 205px; } .sa-features { padding: 68px 0; } .sa-section-heading h2 { font-size: 38px; } .sa-bottom-cta { padding: 24px 20px; } .sa-cta-copy { flex-basis: calc(100% - 65px); } .sa-cta-copy h2 { font-size: 34px; } .sa-bottom-cta > .sa-primary-button { margin-left: 0; width: 100%; } .sa-footer { justify-content: center; text-align: center; } .sa-footer > p { width: 100%; order: 3; } .sa-footer > div { width: 100%; justify-content: center; } }
 @media (prefers-reduced-motion: reduce) { .sa-orb, .sa-hero-copy, .sa-product-stage, .sa-float-card { animation: none !important; } .sa-primary-button, .sa-feature-card { transition: none; } }
 
 
@@ -535,6 +537,8 @@ body { background: #050505; }
 .sa-nav-links a:hover, .sa-footer a:hover { color: #fff !important; }
 .sa-local-pill, .sa-proof-row p, .sa-footer > p, .sa-strip-note { color: #999 !important; }
 .sa-local-pill span, .sa-status-indicator, .sa-live-dot { background: #eee !important; box-shadow: 0 0 0 4px rgba(255,255,255,.08) !important; }
+.sa-nav-chain-cta { display:inline-flex; align-items:center; justify-content:center; gap:10px; border:1px solid #f5f5f5; border-radius:9px; padding:12px 16px; color:#070707 !important; background:#f5f5f5; font-weight:650; font-size:12px; text-decoration:none; white-space:nowrap; transition:transform .2s ease, background .2s ease; }
+.sa-nav-chain-cta:hover { transform:translateY(-2px); background:#d9d9d9; }
 .sa-nav-cta, .sa-primary-button {
   color: #070707 !important; background: #f5f5f5 !important; border: 1px solid #f5f5f5 !important;
   box-shadow: none !important; border-radius: 9px !important; transition: transform .2s ease, background .2s ease !important;
@@ -1187,3 +1191,27 @@ body { background: #050505; }
 @media(max-width:620px) { .rh-risk-summary { grid-template-columns: 1fr; } .rh-chain-nav-links .rh-chain-workspace-link { display: none; } .rh-chain-nav-links .rh-chain-explore-cta { padding: 9px 10px; font-size: 10px; } .rh-rpc-method-label { flex: 1; justify-content: space-between; } }
 .rh-risk-ai-button { display:inline-flex; align-items:center; gap:7px; margin-top:12px; border:1px solid rgba(8,201,166,.35); border-radius:8px; padding:10px 12px; background:rgba(8,201,166,.08); color:#c8f5e9; font-size:10px; font-weight:650; cursor:pointer; }
 .rh-risk-ai-button:hover { background:rgba(8,201,166,.14); }
+
+/* Unified Robinhood Chain Explorer: token directory stays inside the explorer panel. */
+.rh-token-directory { margin-top:22px; padding-top:20px; border-top:1px solid #292929; }
+.rh-token-directory-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.rh-token-directory-heading h3 { display:flex; align-items:center; gap:8px; margin:8px 0 0; font-size:16px; color:#eee; }
+.rh-token-directory-heading p { margin:7px 0 0; color:#858585; font-size:10px; line-height:1.7; }
+.rh-scanner-empty { padding-top:22px; padding-bottom:18px; }
+.rh-transaction-decoder { margin-top:16px; padding:14px; border:1px solid #2c2c2c; border-radius:10px; background:#080808; }
+.rh-transaction-decoder h4 { display:flex; align-items:center; gap:7px; margin:0 0 12px; color:#eee; font-size:11px; }
+.rh-decoder-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.rh-decoder-metrics > div { min-width:0; padding:10px; border:1px solid #252525; border-radius:8px; }
+.rh-decoder-metrics span,.rh-decoder-metrics strong { display:block; overflow-wrap:anywhere; }
+.rh-decoder-metrics span { color:#777; font-size:9px; }
+.rh-decoder-metrics strong { margin-top:6px; color:#ddd; font-size:10px; }
+.rh-calldata-details { margin-top:12px; color:#aaa; font-size:10px; }
+.rh-calldata-details summary { cursor:pointer; }
+.rh-calldata-details code { display:block; max-height:140px; overflow:auto; margin-top:8px; padding:10px; border-radius:7px; background:#111; color:#bbb; overflow-wrap:anywhere; white-space:pre-wrap; }
+.rh-transaction-decoder .rh-risk-ai-button { margin-top:12px; }
+@media(max-width:620px) { .rh-decoder-metrics { grid-template-columns:1fr; } }
+
+.rh-decoded-call { display:grid; gap:7px; margin-top:12px; padding:10px; border:1px solid #252525; border-radius:8px; }
+.rh-decoded-call > span { color:#777; font-size:9px; }
+.rh-decoded-call code { color:#c7e7dd; font-size:10px; overflow-wrap:anywhere; }
+.rh-decoded-call p { margin:0; color:#888; font-size:10px; line-height:1.7; }

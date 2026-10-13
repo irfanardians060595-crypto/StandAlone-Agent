@@ -67,11 +67,11 @@ export default function Home() {
           <div className="sa-nav-links">
             <a href="#features">What it does</a>
             <a href="#workflow">How it works</a>
-            <Link href="/chain">Robinhood Chain <ArrowUpRight size={13} /></Link>
           </div>
           <div className="sa-nav-actions">
             <BrandHeaderLinks />
             <span className="sa-local-pill"><span /> Your own workspace</span>
+            <Link href="/chain" className="sa-nav-chain-cta">Explore Robinhood <ArrowUpRight size={15} /></Link>
             <Link href="/chat" className="sa-nav-cta">Open workspace <ArrowUpRight size={15} /></Link>
           </div>
         </nav>

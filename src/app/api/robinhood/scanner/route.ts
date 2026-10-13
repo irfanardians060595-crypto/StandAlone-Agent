@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     })).filter((item) => item.address);
     return NextResponse.json({ ok: true, data: { items, count: items.length, fetchedAt: new Date().toISOString(), source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API" } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error && error.name === "TimeoutError" ? "Blockscout request timed out. Retry in a moment." : "Unable to reach the Blockscout token index. Check API configuration and try again.";
+    const message = error instanceof Error && error.name === "TimeoutError" ? "Blockscout request timed out. Retry in a moment." : error instanceof Error && error.message.includes("BLOCKSCOUT_PRO_API_KEY") ? error.message : "Unable to reach the Blockscout token index. Check API configuration and try again.";
     return NextResponse.json({ ok: false, error: message }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }
