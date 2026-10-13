@@ -1160,3 +1160,30 @@ body { background: #050505; }
 .rh-wallet-list > div { display:grid; grid-template-columns:minmax(0,1fr) minmax(90px,.7fr) minmax(80px,.5fr); align-items:center; gap:9px; padding:9px 0; border-top:1px solid #202020; font-size:10px; }
 .rh-wallet-list code,.rh-wallet-list small { color:#8d8d8d; font-size:9px; overflow-wrap:anywhere; }
 @media(max-width:620px) { .rh-wallet-analytics-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .rh-wallet-list > div { grid-template-columns:1fr auto; } .rh-wallet-list small { grid-column:1/-1; } .rh-scanner-controls select { flex:1; } .rh-scanner-controls button { flex:1; } }
+
+/* Additive Robinhood Chain intelligence modules; scoped to the Chain dashboard. */
+.rh-chain-nav-links .rh-chain-workspace-link { color: #d6d6d6; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 10px 13px; }
+.rh-chain-nav-links .rh-chain-explore-cta { color: #090909; background: #f2f2f2; border: 1px solid #f2f2f2; border-radius: 9px; padding: 12px 15px; font-weight: 700; }
+.rh-chain-nav-links .rh-chain-explore-cta:hover { color: #090909; background: #fff; }
+.rh-feature-panel { margin-top: 18px; }
+.rh-feature-panel .rh-panel-heading h2 { display: flex; align-items: center; gap: 8px; }
+.rh-risk-report { margin-top: 14px; }
+.rh-risk-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.rh-risk-summary > div { min-width: 0; border: 1px solid #292929; background: #080808; border-radius: 9px; padding: 12px; }
+.rh-risk-summary span,.rh-risk-summary strong { display: block; }
+.rh-risk-summary span { color: #858585; font-size: 9px; }
+.rh-risk-summary strong { margin-top: 7px; font-size: 13px; overflow-wrap: anywhere; }
+.rh-risk-findings { display: grid; gap: 8px; margin-top: 12px; }
+.rh-risk-finding { border: 1px solid #2a3934; background: rgba(8,201,166,.035); border-radius: 9px; padding: 11px 12px; }
+.rh-risk-finding.is-warning { border-color: #5b4730; background: rgba(202,143,67,.055); }
+.rh-risk-finding strong,.rh-risk-functions strong { display: block; font-size: 10px; }
+.rh-risk-finding p,.rh-risk-functions p { margin: 5px 0 0; color: #999; font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; }
+.rh-risk-functions { margin-top: 12px; border: 1px solid #292929; border-radius: 9px; padding: 12px; }
+.rh-disclaimer { color: #8c8c8c; font-size: 9px; line-height: 1.6; }
+.rh-rpc-method-label { display: flex; align-items: center; gap: 10px; border: 1px solid #383838; border-radius: 9px; padding: 0 11px; background: #090909; color: #999; font-size: 10px; }
+.rh-rpc-method-label select { min-height: 38px; border: 0; outline: 0; background: #090909; color: #eee; font: inherit; }
+.rh-rpc-result { margin-top: 14px; border: 1px solid #292929; border-radius: 10px; padding: 12px; background: #080808; }
+.rh-rpc-result pre { max-height: 320px; overflow: auto; margin: 10px 0; padding: 12px; border: 1px solid #202020; border-radius: 8px; background: #050505; color: #c8e9df; font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media(max-width:620px) { .rh-risk-summary { grid-template-columns: 1fr; } .rh-chain-nav-links .rh-chain-workspace-link { display: none; } .rh-chain-nav-links .rh-chain-explore-cta { padding: 9px 10px; font-size: 10px; } .rh-rpc-method-label { flex: 1; justify-content: space-between; } }
+.rh-risk-ai-button { display:inline-flex; align-items:center; gap:7px; margin-top:12px; border:1px solid rgba(8,201,166,.35); border-radius:8px; padding:10px 12px; background:rgba(8,201,166,.08); color:#c8f5e9; font-size:10px; font-weight:650; cursor:pointer; }
+.rh-risk-ai-button:hover { background:rgba(8,201,166,.14); }

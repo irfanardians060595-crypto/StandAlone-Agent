@@ -122,9 +122,12 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
       to,
       valueEth: weiToEth(getString(raw, "value")),
       feeWei: getString(raw, "fee"),
+      gasLimit: getString(raw, "gas_limit"),
       gasUsed: getString(raw, "gas_used"),
       gasPriceWei: getString(raw, "gas_price"),
-      method: getString(raw, "method", "decoded_input"),
+      transactionType: getString(raw, "type"),
+      method: getString(raw, "method", "decoded_input", "function_name"),
+      revertReason: getString(raw, "revert_reason", "error"),
     };
     return { kind, identifier: hash, explorerUrl: `${base}/tx/${hash}`, fetchedAt, source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, raw };
   }

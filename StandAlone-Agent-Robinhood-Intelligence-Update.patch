@@ -1,0 +1,541 @@
+diff --git a/src/app/api/robinhood/explorer/route.ts b/src/app/api/robinhood/explorer/route.ts
+index 9299f54..004f0af 100644
+--- a/src/app/api/robinhood/explorer/route.ts
++++ b/src/app/api/robinhood/explorer/route.ts
+@@ -40,6 +40,8 @@ export async function GET(request: Request) {
+       source: result.source,
+       summary: result.summary,
+       recentTransactions: result.recentTransactions ?? [],
++      tokenBalances: result.tokenBalances ?? [],
++      recentTokenTransfers: result.recentTokenTransfers ?? [],
+     };
+     return NextResponse.json({ ok: true, data: publicResult }, { headers: { "Cache-Control": "no-store" } });
+   } catch (error) {
+diff --git a/src/app/api/robinhood/risk/route.ts b/src/app/api/robinhood/risk/route.ts
+new file mode 100644
+index 0000000..7b89439
+--- /dev/null
++++ b/src/app/api/robinhood/risk/route.ts
+@@ -0,0 +1,68 @@
++import { NextResponse } from "next/server";
++import { getBlockscoutApiUrl, getBlockscoutHeaders } from "@/lib/robinhood/config";
++import { checkRobinhoodRateLimit } from "@/lib/robinhood/rate-limit";
++
++export const dynamic = "force-dynamic";
++export const revalidate = 0;
++
++type Dict = Record<string, unknown>;
++const isRecord = (value: unknown): value is Dict => typeof value === "object" && value !== null && !Array.isArray(value);
++const str = (value: unknown): string | null => typeof value === "string" ? value : typeof value === "number" ? String(value) : null;
++
++export async function GET(request: Request) {
++  const limit = checkRobinhoodRateLimit(request, "risk", 12);
++  if (!limit.allowed) return NextResponse.json({ ok: false, error: "Too many risk-analysis requests. Wait a moment and retry." }, { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds), "Cache-Control": "no-store" } });
++  const address = new URL(request.url).searchParams.get("address")?.trim() ?? "";
++  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return NextResponse.json({ ok: false, error: "Enter a valid EVM contract address." }, { status: 400 });
++
++  try {
++    const [tokenResponse, contractResponse] = await Promise.all([
++      fetch(getBlockscoutApiUrl(`/tokens/${address}`), { headers: getBlockscoutHeaders(), cache: "no-store", signal: AbortSignal.timeout(8000) }),
++      fetch(getBlockscoutApiUrl(`/smart-contracts/${address}`), { headers: getBlockscoutHeaders(), cache: "no-store", signal: AbortSignal.timeout(8000) }).catch(() => null),
++    ]);
++    if (tokenResponse.status === 401 || tokenResponse.status === 403) return NextResponse.json({ ok: false, error: "Blockscout menolak akses. Periksa BLOCKSCOUT_PRO_API_KEY di environment server." }, { status: 502 });
++    if (!tokenResponse.ok && tokenResponse.status !== 404) return NextResponse.json({ ok: false, error: `Token data source returned HTTP ${tokenResponse.status}.` }, { status: 502 });
++    let tokenData: Dict = {};
++    if (tokenResponse.ok) {
++      const parsed: unknown = await tokenResponse.json().catch(() => null);
++      tokenData = isRecord(parsed) ? parsed : {};
++    }
++    let contractData: Dict = {};
++    if (contractResponse?.ok) {
++      const parsed: unknown = await contractResponse.json().catch(() => null);
++      if (isRecord(parsed)) contractData = parsed;
++    }
++    const abiValue = contractData.abi;
++    let abi: unknown[] = [];
++    if (Array.isArray(abiValue)) abi = abiValue;
++    else if (typeof abiValue === "string") { try { const parsed: unknown = JSON.parse(abiValue); if (Array.isArray(parsed)) abi = parsed; } catch { /* ABI may be unavailable or malformed */ } }
++    const functions = abi.filter((item): item is Dict => isRecord(item) && item.type === "function").map((item) => str(item.name)).filter((name): name is string => Boolean(name));
++    const privilegedPatterns = [
++      { pattern: /(^|_)mint($|_)/i, label: "Mint-related function detected", points: 18 },
++      { pattern: /blacklist|blocklist|denylist/i, label: "Address restriction function detected", points: 12 },
++      { pattern: /pause|unpause/i, label: "Pause control detected", points: 8 },
++      { pattern: /set(owner|tax|fee|router|implementation)|upgradeTo|upgradeToAndCall/i, label: "Administrative or upgrade function detected", points: 12 },
++      { pattern: /renounceOwnership/i, label: "Ownership renunciation function detected (not proof ownership was renounced)", points: 0 },
++    ];
++    const verified = contractData.is_verified === true || tokenData.is_verified === true || Boolean(contractData.source_code) || Boolean(contractData.abi);
++    const findings: Array<{ severity: "info" | "warning"; title: string; detail: string }> = [];
++    let score = 0;
++    if (!verified) { score += 25; findings.push({ severity: "warning", title: "Source code not verified in this explorer response", detail: "Bytecode behavior cannot be fully assessed from the available indexed data." }); }
++    else findings.push({ severity: "info", title: "Verified source/ABI appears available", detail: "Verification helps inspection but does not establish that the contract is safe." });
++    for (const item of privilegedPatterns) {
++      const matches = functions.filter((name) => item.pattern.test(name));
++      if (matches.length) {
++        score += item.points;
++        findings.push({ severity: item.points > 0 ? "warning" : "info", title: item.label, detail: `ABI function names: ${matches.slice(0, 8).join(", ")}. Function presence alone does not prove malicious behavior.` });
++      }
++    }
++    if (!functions.length) findings.push({ severity: "info", title: "Function-level inspection unavailable", detail: "No usable verified ABI was returned; this is an evidence gap, not a safety verdict." });
++    const holderCount = str(tokenData.holders) ?? str(tokenData.holders_count);
++    const scoreClamped = Math.min(100, score);
++    const label = scoreClamped >= 50 ? "Elevated indicators" : scoreClamped >= 25 ? "Needs review" : "Limited indicators detected";
++    return NextResponse.json({ ok: true, data: { address, token: { name: str(tokenData.name), symbol: str(tokenData.symbol), holders: holderCount, verified: verified || null }, contract: { verified, compilerVersion: str(contractData.compiler_version), language: str(contractData.language), proxy: contractData.is_proxy === true ? true : contractData.is_proxy === false ? false : null }, score: scoreClamped, label, findings, functions: functions.slice(0, 80), fetchedAt: new Date().toISOString(), source: "Robinhood Chain Blockscout indexed data", disclaimer: "Heuristic triage only; not a security audit or guarantee. Missing indexed data is not treated as proof of safety." } }, { headers: { "Cache-Control": "no-store" } });
++  } catch (error) {
++    const message = error instanceof Error && error.name === "TimeoutError" ? "Risk analysis timed out while requesting indexed contract data." : "Could not retrieve enough indexed data to analyze this contract.";
++    return NextResponse.json({ ok: false, error: message }, { status: 502, headers: { "Cache-Control": "no-store" } });
++  }
++}
+diff --git a/src/app/api/robinhood/rpc/route.ts b/src/app/api/robinhood/rpc/route.ts
+new file mode 100644
+index 0000000..ad1c096
+--- /dev/null
++++ b/src/app/api/robinhood/rpc/route.ts
+@@ -0,0 +1,32 @@
++import { NextResponse } from "next/server";
++import { getRobinhoodRpcUrl } from "@/lib/robinhood/config";
++import { checkRobinhoodRateLimit } from "@/lib/robinhood/rate-limit";
++
++export const dynamic = "force-dynamic";
++export const revalidate = 0;
++
++const READ_METHODS = new Set(["eth_chainId", "eth_blockNumber", "eth_gasPrice", "eth_getBlockByNumber"]);
++export async function POST(request: Request) {
++  const limit = checkRobinhoodRateLimit(request, "rpc-playground", 20);
++  if (!limit.allowed) return NextResponse.json({ ok: false, error: "RPC playground rate limit reached. Wait and retry." }, { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds), "Cache-Control": "no-store" } });
++  try {
++    const body: unknown = await request.json();
++    if (typeof body !== "object" || body === null || Array.isArray(body)) return NextResponse.json({ ok: false, error: "Send a JSON object containing method and params." }, { status: 400 });
++    const { method, params } = body as { method?: unknown; params?: unknown };
++    if (typeof method !== "string" || !READ_METHODS.has(method)) return NextResponse.json({ ok: false, error: "Only read-only methods are allowed: eth_chainId, eth_blockNumber, eth_gasPrice, eth_getBlockByNumber." }, { status: 400 });
++    const safeParams = params === undefined ? [] : params;
++    if (!Array.isArray(safeParams) || safeParams.length > 2 || safeParams.some((item) => typeof item !== "string" && typeof item !== "boolean" && item !== null)) return NextResponse.json({ ok: false, error: "RPC params must be an array of up to two simple values." }, { status: 400 });
++    if (method === "eth_getBlockByNumber" && (safeParams.length !== 2 || typeof safeParams[0] !== "string" || typeof safeParams[1] !== "boolean")) return NextResponse.json({ ok: false, error: "eth_getBlockByNumber expects [blockTag, includeTransactions]." }, { status: 400 });
++    if (method !== "eth_getBlockByNumber" && safeParams.length !== 0) return NextResponse.json({ ok: false, error: `${method} does not accept parameters in this playground.` }, { status: 400 });
++    const response = await fetch(getRobinhoodRpcUrl(), { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: safeParams }), cache: "no-store", signal: AbortSignal.timeout(8000) });
++    if (!response.ok) return NextResponse.json({ ok: false, error: `Robinhood RPC returned HTTP ${response.status}. Check the server-side Alchemy configuration.` }, { status: 502 });
++    const payload: unknown = await response.json();
++    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return NextResponse.json({ ok: false, error: "RPC returned an unexpected response." }, { status: 502 });
++    const result = payload as { result?: unknown; error?: { message?: string; code?: number } };
++    if (result.error) return NextResponse.json({ ok: false, error: result.error.message ?? "RPC returned an error.", code: result.error.code }, { status: 502 });
++    return NextResponse.json({ ok: true, method, result: result.result, fetchedAt: new Date().toISOString(), network: "Robinhood Chain Mainnet · 4663" }, { headers: { "Cache-Control": "no-store" } });
++  } catch (error) {
++    const message = error instanceof Error && error.message.includes("not configured") ? error.message : error instanceof Error && error.name === "TimeoutError" ? "Robinhood RPC request timed out." : "Could not reach Robinhood Chain RPC. Check server-side configuration.";
++    return NextResponse.json({ ok: false, error: message }, { status: 502, headers: { "Cache-Control": "no-store" } });
++  }
++}
+diff --git a/src/app/api/robinhood/scanner/route.ts b/src/app/api/robinhood/scanner/route.ts
+new file mode 100644
+index 0000000..5d74ef7
+--- /dev/null
++++ b/src/app/api/robinhood/scanner/route.ts
+@@ -0,0 +1,54 @@
++import { NextResponse } from "next/server";
++import { getBlockscoutApiUrl, getBlockscoutHeaders } from "@/lib/robinhood/config";
++import { checkRobinhoodRateLimit } from "@/lib/robinhood/rate-limit";
++
++export const dynamic = "force-dynamic";
++export const revalidate = 0;
++
++type RecordValue = Record<string, unknown>;
++function record(value: unknown): value is RecordValue { return typeof value === "object" && value !== null && !Array.isArray(value); }
++function str(value: unknown): string | null { return typeof value === "string" || typeof value === "number" ? String(value) : null; }
++
++export async function GET(request: Request) {
++  const limit = checkRobinhoodRateLimit(request, "scanner", 20);
++  if (!limit.allowed) return NextResponse.json({ ok: false, error: "Scanner rate limit reached. Wait a moment and retry." }, { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds), "Cache-Control": "no-store" } });
++  const url = new URL(request.url);
++  const sortValue = url.searchParams.get("sort") ?? "holders_count";
++  const sort = ["holders_count", "fiat_value", "circulating_market_cap"].includes(sortValue) ? sortValue : "holders_count";
++  const q = (url.searchParams.get("q") ?? "").trim().slice(0, 80);
++  const api = new URL(getBlockscoutApiUrl("/tokens"));
++  api.searchParams.set("type", "ERC-20");
++  api.searchParams.set("sort", sort);
++  api.searchParams.set("order", "desc");
++  api.searchParams.set("items_count", "20");
++  if (q) api.searchParams.set("q", q);
++  try {
++    const response = await fetch(api, { headers: getBlockscoutHeaders(), cache: "no-store", signal: AbortSignal.timeout(10000) });
++    if (!response.ok) {
++      const status = response.status === 401 || response.status === 403 ? 502 : response.status;
++      const message = response.status === 401 || response.status === 403
++        ? "Blockscout menolak akses API. Pastikan BLOCKSCOUT_PRO_API_KEY valid dan sudah diatur di environment server Vercel."
++        : `Blockscout token scanner returned HTTP ${response.status}.`;
++      return NextResponse.json({ ok: false, error: message }, { status, headers: { "Cache-Control": "no-store" } });
++    }
++    const body: unknown = await response.json();
++    if (!record(body) || !Array.isArray(body.items)) return NextResponse.json({ ok: false, error: "Blockscout returned an unexpected token list." }, { status: 502 });
++    const items = body.items.filter(record).map((item) => ({
++      address: str(item.address) ?? str(item.address_hash) ?? str(item.contract_address_hash),
++      name: str(item.name) ?? "Unknown token",
++      symbol: str(item.symbol),
++      decimals: str(item.decimals),
++      holders: str(item.holders) ?? str(item.holders_count),
++      marketCap: str(item.circulating_market_cap) ?? str(item.market_cap),
++      fiatValue: str(item.exchange_rate) ?? str(item.fiat_value),
++      totalSupply: str(item.total_supply),
++      type: str(item.type) ?? "ERC-20",
++      verified: typeof item.is_verified === "boolean" ? item.is_verified : null,
++      explorerUrl: (str(item.address) ?? str(item.address_hash) ?? str(item.contract_address_hash)) ? `https://robinhoodchain.blockscout.com/token/${str(item.address) ?? str(item.address_hash) ?? str(item.contract_address_hash)}` : "https://robinhoodchain.blockscout.com/",
++    })).filter((item) => item.address);
++    return NextResponse.json({ ok: true, data: { items, count: items.length, fetchedAt: new Date().toISOString(), source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API" } }, { headers: { "Cache-Control": "no-store" } });
++  } catch (error) {
++    const message = error instanceof Error && error.name === "TimeoutError" ? "Blockscout request timed out. Retry in a moment." : "Unable to reach the Blockscout token index. Check API configuration and try again.";
++    return NextResponse.json({ ok: false, error: message }, { status: 502, headers: { "Cache-Control": "no-store" } });
++  }
++}
+diff --git a/src/app/globals.css b/src/app/globals.css
+index b03a3d9..d458a0c 100644
+--- a/src/app/globals.css
++++ b/src/app/globals.css
+@@ -1128,3 +1128,62 @@ body { background: #050505; }
+   .sa-comet { display: none !important; }
+   .sa-intro-skip { animation: none !important; }
+ }
++
++
++/* Robinhood Chain scanner and wallet analytics — additive, scoped styles */
++.rh-token-scanner { grid-column: 1 / -1; margin-top: 18px; }
++.rh-token-scanner .rh-panel-heading h2 { display:flex; align-items:center; gap:8px; }
++.rh-scanner-controls { display:flex; gap:9px; margin:17px 0 13px; flex-wrap:wrap; }
++.rh-scanner-query { display:flex; align-items:center; gap:9px; flex:1; min-width:230px; border:1px solid #383838; border-radius:9px; padding:0 11px; background:#090909; color:#999; }
++.rh-scanner-query input { flex:1; min-width:0; height:38px; border:0; outline:0; background:transparent; color:#eee; font:inherit; font-size:11px; }
++.rh-scanner-controls select { min-height:38px; border:1px solid #383838; border-radius:9px; padding:0 10px; background:#090909; color:#ddd; font:inherit; font-size:11px; }
++.rh-scanner-controls button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; padding:0 13px; min-height:38px; background:#eee; color:#080808; font-size:10px; font-weight:700; cursor:pointer; }
++.rh-scanner-controls button:disabled { opacity:.65; cursor:wait; }
++.rh-scanner-table-wrap { width:100%; overflow-x:auto; border:1px solid #292929; border-radius:10px; }
++.rh-scanner-table { width:100%; border-collapse:collapse; text-align:left; font-size:11px; }
++.rh-scanner-table th { color:#777; font-size:9px; text-transform:uppercase; letter-spacing:.08em; font-weight:600; }
++.rh-scanner-table th,.rh-scanner-table td { padding:12px 13px; border-bottom:1px solid #202020; white-space:nowrap; }
++.rh-scanner-table tbody tr:last-child td { border-bottom:0; }
++.rh-scanner-table td:first-child { min-width:150px; white-space:normal; }
++.rh-scanner-table td strong,.rh-scanner-table td small { display:block; }
++.rh-scanner-table td small { margin-top:4px; color:#777; font-size:9px; }
++.rh-scanner-table td a { display:inline-flex; align-items:center; gap:5px; color:#b9e8dc; text-decoration:none; }
++.rh-wallet-analytics { margin-top:18px; padding-top:16px; border-top:1px solid #292929; }
++.rh-wallet-analytics h4 { display:flex; align-items:center; gap:7px; margin:0 0 12px; font-size:11px; }
++.rh-wallet-analytics-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
++.rh-wallet-analytics-grid > div { padding:11px; border:1px solid #292929; border-radius:9px; background:#080808; min-width:0; }
++.rh-wallet-analytics-grid span,.rh-wallet-analytics-grid strong { display:block; }
++.rh-wallet-analytics-grid span { color:#777; font-size:9px; }
++.rh-wallet-analytics-grid strong { margin-top:6px; font-size:12px; overflow-wrap:anywhere; }
++.rh-wallet-list { display:grid; gap:0; margin-top:14px; }
++.rh-wallet-list > strong { margin-bottom:7px; font-size:10px; color:#ccc; }
++.rh-wallet-list > div { display:grid; grid-template-columns:minmax(0,1fr) minmax(90px,.7fr) minmax(80px,.5fr); align-items:center; gap:9px; padding:9px 0; border-top:1px solid #202020; font-size:10px; }
++.rh-wallet-list code,.rh-wallet-list small { color:#8d8d8d; font-size:9px; overflow-wrap:anywhere; }
++@media(max-width:620px) { .rh-wallet-analytics-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .rh-wallet-list > div { grid-template-columns:1fr auto; } .rh-wallet-list small { grid-column:1/-1; } .rh-scanner-controls select { flex:1; } .rh-scanner-controls button { flex:1; } }
++
++/* Additive Robinhood Chain intelligence modules; scoped to the Chain dashboard. */
++.rh-chain-nav-links .rh-chain-workspace-link { color: #d6d6d6; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 10px 13px; }
++.rh-chain-nav-links .rh-chain-explore-cta { color: #090909; background: #f2f2f2; border: 1px solid #f2f2f2; border-radius: 9px; padding: 12px 15px; font-weight: 700; }
++.rh-chain-nav-links .rh-chain-explore-cta:hover { color: #090909; background: #fff; }
++.rh-feature-panel { margin-top: 18px; }
++.rh-feature-panel .rh-panel-heading h2 { display: flex; align-items: center; gap: 8px; }
++.rh-risk-report { margin-top: 14px; }
++.rh-risk-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
++.rh-risk-summary > div { min-width: 0; border: 1px solid #292929; background: #080808; border-radius: 9px; padding: 12px; }
++.rh-risk-summary span,.rh-risk-summary strong { display: block; }
++.rh-risk-summary span { color: #858585; font-size: 9px; }
++.rh-risk-summary strong { margin-top: 7px; font-size: 13px; overflow-wrap: anywhere; }
++.rh-risk-findings { display: grid; gap: 8px; margin-top: 12px; }
++.rh-risk-finding { border: 1px solid #2a3934; background: rgba(8,201,166,.035); border-radius: 9px; padding: 11px 12px; }
++.rh-risk-finding.is-warning { border-color: #5b4730; background: rgba(202,143,67,.055); }
++.rh-risk-finding strong,.rh-risk-functions strong { display: block; font-size: 10px; }
++.rh-risk-finding p,.rh-risk-functions p { margin: 5px 0 0; color: #999; font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; }
++.rh-risk-functions { margin-top: 12px; border: 1px solid #292929; border-radius: 9px; padding: 12px; }
++.rh-disclaimer { color: #8c8c8c; font-size: 9px; line-height: 1.6; }
++.rh-rpc-method-label { display: flex; align-items: center; gap: 10px; border: 1px solid #383838; border-radius: 9px; padding: 0 11px; background: #090909; color: #999; font-size: 10px; }
++.rh-rpc-method-label select { min-height: 38px; border: 0; outline: 0; background: #090909; color: #eee; font: inherit; }
++.rh-rpc-result { margin-top: 14px; border: 1px solid #292929; border-radius: 10px; padding: 12px; background: #080808; }
++.rh-rpc-result pre { max-height: 320px; overflow: auto; margin: 10px 0; padding: 12px; border: 1px solid #202020; border-radius: 8px; background: #050505; color: #c8e9df; font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
++@media(max-width:620px) { .rh-risk-summary { grid-template-columns: 1fr; } .rh-chain-nav-links .rh-chain-workspace-link { display: none; } .rh-chain-nav-links .rh-chain-explore-cta { padding: 9px 10px; font-size: 10px; } .rh-rpc-method-label { flex: 1; justify-content: space-between; } }
++.rh-risk-ai-button { display:inline-flex; align-items:center; gap:7px; margin-top:12px; border:1px solid rgba(8,201,166,.35); border-radius:8px; padding:10px 12px; background:rgba(8,201,166,.08); color:#c8f5e9; font-size:10px; font-weight:650; cursor:pointer; }
++.rh-risk-ai-button:hover { background:rgba(8,201,166,.14); }
+diff --git a/src/components/robinhood/ChainHubClient.tsx b/src/components/robinhood/ChainHubClient.tsx
+index 5bcba60..dec026d 100644
+--- a/src/components/robinhood/ChainHubClient.tsx
++++ b/src/components/robinhood/ChainHubClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from "next/link";
+ import { useCallback, useState } from "react";
+ import type { FormEvent } from "react";
+-import { ArrowUpRight, Blocks, CircleAlert, Clock3, Database, ExternalLink, FileSearch, Globe2, RefreshCw, Search, ShieldCheck, Sparkles } from "lucide-react";
++import { ArrowUpRight, Blocks, CircleAlert, Clock3, Database, ExternalLink, FileSearch, Globe2, RefreshCw, Search, ShieldCheck, Sparkles, ScanSearch, Wallet, Coins, Code2, Terminal, ShieldAlert } from "lucide-react";
+ import { AnimatedDotField } from "@/components/ui/animated-dot-field";
+ import { ChainPulseMini } from "@/components/robinhood/ChainPulseMini";
+ import { StandAloneLogo } from "@/components/brand/StandAloneLogo";
+@@ -18,7 +18,12 @@ type ExplorerResult = {
+   source: string;
+   summary: Record<string, string | number | boolean | null>;
+   recentTransactions?: Array<Record<string, string | null>>;
++  tokenBalances?: Array<Record<string, string | null>>;
++  recentTokenTransfers?: Array<Record<string, string | null>>;
+ };
++type ScannedToken = { address: string; name: string; symbol: string | null; decimals: string | null; holders: string | null; marketCap: string | null; fiatValue: string | null; totalSupply: string | null; type: string; verified: boolean | null; explorerUrl: string };
++type RiskReport = { address: string; token: { name: string | null; symbol: string | null; holders: string | null; verified: boolean | null }; contract: { verified: boolean; compilerVersion: string | null; language: string | null; proxy: boolean | null }; score: number; label: string; findings: Array<{ severity: "info" | "warning"; title: string; detail: string }>; functions: string[]; fetchedAt: string; source: string; disclaimer: string };
++type RpcResult = { method: string; result: unknown; fetchedAt: string; network: string };
+ 
+ const searchKinds: Array<{ value: ExplorerKind; label: string; placeholder: string }> = [
+   { value: "token", label: "Token contract", placeholder: "0x… token contract address" },
+@@ -44,6 +49,59 @@ export function ChainHubClient() {
+   const [loading, setLoading] = useState(false);
+   const [lookupError, setLookupError] = useState<string | null>(null);
+   const [result, setResult] = useState<ExplorerResult | null>(null);
++  const [scannerSort, setScannerSort] = useState("holders_count");
++  const [scannerQuery, setScannerQuery] = useState("");
++  const [scannerLoading, setScannerLoading] = useState(false);
++  const [scannerError, setScannerError] = useState<string | null>(null);
++  const [scannerTokens, setScannerTokens] = useState<ScannedToken[]>([]);
++  const [scannerFetchedAt, setScannerFetchedAt] = useState<string | null>(null);
++  const [riskAddress, setRiskAddress] = useState("");
++  const [riskLoading, setRiskLoading] = useState(false);
++  const [riskError, setRiskError] = useState<string | null>(null);
++  const [riskReport, setRiskReport] = useState<RiskReport | null>(null);
++  const [rpcMethod, setRpcMethod] = useState("eth_blockNumber");
++  const [rpcLoading, setRpcLoading] = useState(false);
++  const [rpcError, setRpcError] = useState<string | null>(null);
++  const [rpcResult, setRpcResult] = useState<RpcResult | null>(null);
++
++  const runRiskAnalysis = useCallback(async (event?: FormEvent) => {
++    event?.preventDefault();
++    const address = riskAddress.trim();
++    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) { setRiskError("Enter a valid Robinhood Chain contract address."); setRiskReport(null); return; }
++    setRiskLoading(true); setRiskError(null); setRiskReport(null);
++    try {
++      const response = await fetch(`/api/robinhood/risk?address=${encodeURIComponent(address)}`, { cache: "no-store" });
++      const payload = await response.json() as { ok: boolean; data?: RiskReport; error?: string };
++      if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? "Risk analysis request failed.");
++      setRiskReport(payload.data);
++    } catch (error) { setRiskError(error instanceof Error ? error.message : "Risk analysis request failed."); }
++    finally { setRiskLoading(false); }
++  }, [riskAddress]);
++
++  const runRpcCheck = useCallback(async () => {
++    setRpcLoading(true); setRpcError(null); setRpcResult(null);
++    try {
++      const response = await fetch("/api/robinhood/rpc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method: rpcMethod, params: [] }) });
++      const payload = await response.json() as { ok: boolean; result?: unknown; method?: string; fetchedAt?: string; network?: string; error?: string };
++      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "RPC request failed.");
++      setRpcResult({ method: payload.method ?? rpcMethod, result: payload.result, fetchedAt: payload.fetchedAt ?? new Date().toISOString(), network: payload.network ?? "Robinhood Chain Mainnet · 4663" });
++    } catch (error) { setRpcError(error instanceof Error ? error.message : "RPC request failed."); }
++    finally { setRpcLoading(false); }
++  }, [rpcMethod]);
++
++  const loadScanner = useCallback(async (event?: FormEvent) => {
++    event?.preventDefault();
++    setScannerLoading(true); setScannerError(null);
++    try {
++      const params = new URLSearchParams({ sort: scannerSort });
++      if (scannerQuery.trim()) params.set("q", scannerQuery.trim());
++      const response = await fetch(`/api/robinhood/scanner?${params.toString()}`, { cache: "no-store" });
++      const payload = await response.json() as { ok: boolean; data?: { items: ScannedToken[]; fetchedAt: string }; error?: string };
++      if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? "Token scanner request failed.");
++      setScannerTokens(payload.data.items); setScannerFetchedAt(payload.data.fetchedAt);
++    } catch (error) { setScannerError(error instanceof Error ? error.message : "Token scanner request failed."); }
++    finally { setScannerLoading(false); }
++  }, [scannerQuery, scannerSort]);
+ 
+   const startResearchPrompt = (prompt: string) => {
+     try {
+@@ -84,7 +142,7 @@ export function ChainHubClient() {
+       <div className="rh-chain-content">
+         <header className="rh-chain-nav">
+           <Link href="/" className="rh-chain-brand"><StandAloneLogo size={35} className="rh-chain-logo" priority /><span>StandAlone <b>Agent</b><small>ROBINHOOD CHAIN TOOLS</small></span></Link>
+-          <div className="rh-chain-nav-links"><BrandHeaderLinks /><span className="rh-chain-pill"><i /> MAINNET · 4663</span><Link href="/chat">AI workspace <ArrowUpRight size={14} /></Link></div>
++          <div className="rh-chain-nav-links"><BrandHeaderLinks /><span className="rh-chain-pill"><i /> MAINNET · 4663</span><Link href="/chat" className="rh-chain-workspace-link">Open workspace <ArrowUpRight size={14} /></Link><a href="#explorer" className="rh-chain-explore-cta">Explore Robinhood <ArrowUpRight size={14} /></a></div>
+         </header>
+ 
+         <section className="rh-chain-hero">
+@@ -99,7 +157,7 @@ export function ChainHubClient() {
+           <div className="rh-chain-left-column">
+             <ChainPulseMini />
+             <section className="rh-explorer-panel" id="explorer">
+-              <div className="rh-panel-heading"><div><span className="rh-eyebrow">PUBLIC BLOCK EXPLORER DATA</span><h2>Token & transaction explorer</h2><p>Look up a token contract, address, or transaction hash.</p></div><span className="rh-icon-tile"><FileSearch size={18} /></span></div>
++              <div className="rh-panel-heading"><div><span className="rh-eyebrow">PUBLIC BLOCK EXPLORER DATA</span><h2>Token, wallet & transaction explorer</h2><p>Look up a token contract, wallet address, or transaction hash. Transaction searches include decoded fields when indexed data provides them.</p></div><span className="rh-icon-tile"><FileSearch size={18} /></span></div>
+               <div className="rh-search-tabs" role="tablist" aria-label="Explorer search type">
+                 {searchKinds.map((item) => <button key={item.value} type="button" role="tab" aria-selected={kind === item.value} className={kind === item.value ? "is-selected" : ""} onClick={() => { setKind(item.value); setResult(null); setLookupError(null); }}>{item.label}</button>)}
+               </div>
+@@ -114,6 +172,12 @@ export function ChainHubClient() {
+                 <div className="rh-result-heading"><div><span className="rh-result-type">{result.kind.toUpperCase()} RESULT</span><h3>{String(result.summary.name ?? result.summary.symbol ?? (result.kind === "transaction" ? "Transaction detail" : result.kind === "address" ? "Address detail" : "Token detail"))}</h3><code>{shorten(result.identifier, 14, 12)}</code></div><a href={result.explorerUrl} target="_blank" rel="noreferrer" className="rh-external-link">Open explorer <ExternalLink size={13} /></a></div>
+                 <div className="rh-result-fields">{Object.entries(result.summary as Record<string, string | number | boolean | null>).map(([key, value]) => <div className="rh-result-field" key={key}><span>{key.replace(/([A-Z])/g, " $1").replace(/_/g, " ")}</span><strong>{displayValue(value)}</strong></div>)}</div>
+                 {result.recentTransactions && result.recentTransactions.length > 0 && <div className="rh-recent-txs"><h4><Clock3 size={14} /> Recent transactions</h4>{result.recentTransactions.map((tx, index) => <div key={`${tx.hash ?? "tx"}-${index}`} className="rh-tx-row"><span>{shorten(tx.hash, 13, 8)}</span><span>{tx.status ?? "Indexed"}</span><span>{tx.block ?? "—"}</span>{tx.hash && <a href={`https://robinhoodchain.blockscout.com/tx/${tx.hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction"><ArrowUpRight size={13} /></a>}</div>)}</div>}
++                {result.kind === "address" && <div className="rh-wallet-analytics">
++                  <h4><Wallet size={14} /> Wallet analytics</h4>
++                  <div className="rh-wallet-analytics-grid"><div><span>Native ETH balance</span><strong>{displayValue(result.summary.balanceEth ?? null)} ETH</strong></div><div><span>Transactions indexed</span><strong>{displayValue(result.summary.transactionCount ?? null)}</strong></div><div><span>Token balances found</span><strong>{result.tokenBalances?.length ?? 0}</strong></div><div><span>Recent ERC-20 transfers</span><strong>{result.recentTokenTransfers?.length ?? 0}</strong></div></div>
++                  {result.tokenBalances && result.tokenBalances.length > 0 && <div className="rh-wallet-list"><strong>Token holdings (up to 20 indexed assets)</strong>{result.tokenBalances.map((item, index) => <div key={`${item.contract ?? item.token}-${index}`}><span>{item.token ?? "Token"}{item.symbol ? ` (${item.symbol})` : ""}</span><code>{shorten(item.contract, 8, 6)}</code><small>{item.balance ?? "Balance indexed"}</small></div>)}</div>}
++                  {result.recentTokenTransfers && result.recentTokenTransfers.length > 0 && <div className="rh-wallet-list"><strong>Recent token transfers</strong>{result.recentTokenTransfers.map((item, index) => <div key={`${item.hash ?? "transfer"}-${index}`}><span>{item.token ?? "Token"}</span><code>{shorten(item.hash, 8, 6)}</code><small>{item.amount ?? "Amount indexed"}</small></div>)}</div>}
++                </div>}
+                 <div className="rh-result-footer"><span>Fetched {new Date(result.fetchedAt).toLocaleString()}</span><span>{result.source}</span></div>
+               </div>}
+               {!result && !lookupError && <div className="rh-explorer-empty"><div className="rh-empty-symbol"><Search size={20} /></div><strong>Start with an onchain identifier</strong><p>Paste a public address or transaction hash to load indexed explorer data. We do not fabricate data for empty states.</p></div>}
+@@ -141,6 +205,37 @@ export function ChainHubClient() {
+           </aside>
+         </div>
+ 
++          <section className="rh-explorer-panel rh-token-scanner" id="token-scanner">
++            <div className="rh-panel-heading"><div><span className="rh-eyebrow">LIVE INDEXED TOKEN DATA</span><h2><ScanSearch size={19} /> Token Scanner</h2><p>Browse indexed ERC-20 contracts on Robinhood Chain Mainnet. Results come from Blockscout, not simulated data.</p></div><span className="rh-icon-tile"><Coins size={18} /></span></div>
++            <form className="rh-scanner-controls" onSubmit={(event) => void loadScanner(event)}>
++              <label className="rh-scanner-query"><Search size={15} /><input value={scannerQuery} onChange={(event) => setScannerQuery(event.target.value)} placeholder="Filter by token name, symbol, or contract" aria-label="Filter tokens" /></label>
++              <select value={scannerSort} onChange={(event) => setScannerSort(event.target.value)} aria-label="Sort tokens"><option value="holders_count">Most holders</option><option value="circulating_market_cap">Market cap</option><option value="fiat_value">Token price</option></select>
++              <button type="submit" disabled={scannerLoading}>{scannerLoading ? <RefreshCw size={14} className="rh-spin" /> : <><ScanSearch size={14} /> Scan tokens</>}</button>
++            </form>
++            {scannerError && <div className="rh-error-card"><CircleAlert size={16} /><div><strong>Scanner unavailable</strong><p>{scannerError}</p></div></div>}
++            {scannerTokens.length > 0 && <><div className="rh-scanner-table-wrap"><table className="rh-scanner-table"><thead><tr><th>Token</th><th>Holders</th><th>Market cap</th><th>Contract</th></tr></thead><tbody>{scannerTokens.map((token) => <tr key={token.address}><td><strong>{token.name}</strong><small>{token.symbol ?? "—"} · {token.type}</small></td><td>{token.holders ?? "—"}</td><td>{token.marketCap ? `$${Number(token.marketCap).toLocaleString()}` : "—"}</td><td><a href={token.explorerUrl} target="_blank" rel="noreferrer">{shorten(token.address, 8, 6)} <ExternalLink size={12} /></a></td></tr>)}</tbody></table></div><div className="rh-result-footer"><span>{scannerTokens.length} tokens returned</span><span>{scannerFetchedAt ? `Fetched ${new Date(scannerFetchedAt).toLocaleString()}` : ""}</span></div></>}
++            {!scannerTokens.length && !scannerError && <div className="rh-explorer-empty"><div className="rh-empty-symbol"><ScanSearch size={20} /></div><strong>Ready to scan Robinhood Chain</strong><p>Choose a sort mode and click Scan tokens to request the latest indexed ERC-20 token list.</p></div>}
++          </section>
++
++          <section className="rh-explorer-panel rh-feature-panel" id="risk-analyzer">
++            <div className="rh-panel-heading"><div><span className="rh-eyebrow">EVIDENCE-BASED CONTRACT TRIAGE</span><h2><ShieldAlert size={19} /> AI Contract & Token Risk Analyzer</h2><p>Inspect indexed verification and ABI function names. This is a heuristic triage report, not an audit or safety guarantee.</p></div><span className="rh-icon-tile"><ShieldCheck size={18} /></span></div>
++            <form className="rh-scanner-controls" onSubmit={(event) => void runRiskAnalysis(event)}>
++              <label className="rh-scanner-query"><Search size={15} /><input value={riskAddress} onChange={(event) => setRiskAddress(event.target.value)} spellCheck={false} placeholder="0x… token or contract address" aria-label="Contract address for risk analysis" /></label>
++              <button type="submit" disabled={riskLoading}>{riskLoading ? <RefreshCw size={14} className="rh-spin" /> : <><ShieldCheck size={14} /> Analyze contract</>}</button>
++            </form>
++            {riskError && <div className="rh-error-card"><CircleAlert size={16} /><div><strong>Risk analysis unavailable</strong><p>{riskError}</p></div></div>}
++            {riskReport && <div className="rh-risk-report"><div className="rh-risk-summary"><div><span>Heuristic indicator score</span><strong>{riskReport.score}/100</strong></div><div><span>Assessment</span><strong>{riskReport.label}</strong></div><div><span>Source verified</span><strong>{riskReport.contract.verified ? "Yes" : "No / unavailable"}</strong></div></div><div className="rh-risk-findings">{riskReport.findings.map((finding, index) => <div key={`${finding.title}-${index}`} className={finding.severity === "warning" ? "rh-risk-finding is-warning" : "rh-risk-finding"}><strong>{finding.title}</strong><p>{finding.detail}</p></div>)}</div>{riskReport.functions.length > 0 && <div className="rh-risk-functions"><strong>ABI function names ({riskReport.functions.length})</strong><p>{riskReport.functions.join(", ")}</p></div>}<button type="button" className="rh-risk-ai-button" onClick={() => startResearchPrompt(`Explain this Robinhood Chain contract risk report using evidence, distinguish facts from uncertainty, and do not claim the contract is safe or malicious without proof. Address: ${riskReport.address}. Score: ${riskReport.score}/100 (${riskReport.label}). Findings: ${JSON.stringify(riskReport.findings)}. Contract details: ${JSON.stringify(riskReport.contract)}. Data source: ${riskReport.source}. Disclaimer: ${riskReport.disclaimer}`)}><Sparkles size={14} /> Explain findings with AI <ArrowUpRight size={13} /></button><div className="rh-result-footer"><span>{riskReport.source}</span><span>Fetched {new Date(riskReport.fetchedAt).toLocaleString()}</span></div><p className="rh-disclaimer">{riskReport.disclaimer}</p></div>}
++            {!riskReport && !riskError && <div className="rh-explorer-empty"><div className="rh-empty-symbol"><ShieldAlert size={20} /></div><strong>Check a contract before interacting</strong><p>Enter a contract address to review available verification data and potentially privileged ABI functions. Missing data is not treated as proof of safety.</p></div>}
++          </section>
++
++          <section className="rh-explorer-panel rh-feature-panel" id="developer-toolkit">
++            <div className="rh-panel-heading"><div><span className="rh-eyebrow">READ-ONLY RPC PLAYGROUND</span><h2><Terminal size={19} /> Developer Toolkit</h2><p>Run a small allowlist of read-only Robinhood Chain RPC checks. Write methods and transaction submission are blocked.</p></div><span className="rh-icon-tile"><Code2 size={18} /></span></div>
++            <div className="rh-scanner-controls"><label className="rh-rpc-method-label"><span>JSON-RPC method</span><select value={rpcMethod} onChange={(event) => setRpcMethod(event.target.value)} aria-label="JSON-RPC method"><option value="eth_chainId">eth_chainId</option><option value="eth_blockNumber">eth_blockNumber</option><option value="eth_gasPrice">eth_gasPrice</option></select></label><button type="button" onClick={() => void runRpcCheck()} disabled={rpcLoading}>{rpcLoading ? <RefreshCw size={14} className="rh-spin" /> : <><Terminal size={14} /> Run read-only request</>}</button></div>
++            {rpcError && <div className="rh-error-card"><CircleAlert size={16} /><div><strong>RPC request failed</strong><p>{rpcError}</p></div></div>}
++            {rpcResult && <div className="rh-rpc-result"><div className="rh-result-footer"><span>{rpcResult.network}</span><span>{rpcResult.method}</span></div><pre>{JSON.stringify(rpcResult.result, null, 2)}</pre><div className="rh-result-footer"><span>Response received</span><span>{new Date(rpcResult.fetchedAt).toLocaleString()}</span></div></div>}
++            {!rpcResult && !rpcError && <div className="rh-explorer-empty"><div className="rh-empty-symbol"><Code2 size={20} /></div><strong>Test the Robinhood Chain RPC</strong><p>Check the configured server-side RPC connection without exposing API keys or sending transactions.</p></div>}
++          </section>
++
+         <footer className="rh-chain-footer"><Link href="/">StandAlone Agent</Link><span>Independent AI workspace · Robinhood Chain Mainnet</span><span><Database size={12} /> RPC and explorer data may be delayed</span></footer>
+       </div>
+     </main>
+diff --git a/src/lib/robinhood/config.ts b/src/lib/robinhood/config.ts
+index 50e7461..fdf715b 100644
+--- a/src/lib/robinhood/config.ts
++++ b/src/lib/robinhood/config.ts
+@@ -5,6 +5,7 @@ export const ROBINHOOD_CHAIN = {
+   currencySymbol: "ETH",
+   rpcUrl: "https://robinhood-mainnet.g.alchemy.com/v2",
+   explorerUrl: "https://robinhoodchain.blockscout.com",
++  proApiBaseUrl: "https://api.blockscout.com/4663/api/v2",
+ } as const;
+ 
+ /** Server-only: never import this helper into a Client Component. */
+@@ -20,3 +21,16 @@ export function getRobinhoodRpcUrl(): string {
+ 
+   return `${ROBINHOOD_CHAIN.rpcUrl}/${apiKey.trim()}`;
+ }
++
++/** Build a server-side Blockscout API URL. Prefer the authenticated PRO gateway when configured. */
++export function getBlockscoutApiUrl(path: string): string {
++  const cleanPath = path.startsWith("/") ? path : `/${path}`;
++  const key = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
++  if (key) return `${ROBINHOOD_CHAIN.proApiBaseUrl}${cleanPath}`;
++  return `${ROBINHOOD_CHAIN.explorerUrl}/api/v2${cleanPath}`;
++}
++
++export function getBlockscoutHeaders(): HeadersInit {
++  const key = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
++  return key ? { accept: "application/json", authorization: `Bearer ${key}` } : { accept: "application/json" };
++}
+diff --git a/src/lib/robinhood/explorer.ts b/src/lib/robinhood/explorer.ts
+index 7e57324..9327d09 100644
+--- a/src/lib/robinhood/explorer.ts
++++ b/src/lib/robinhood/explorer.ts
+@@ -1,4 +1,4 @@
+-import { ROBINHOOD_CHAIN } from "./config";
++import { getBlockscoutApiUrl, getBlockscoutHeaders, ROBINHOOD_CHAIN } from "./config";
+ 
+ export type ExplorerKind = "token" | "address" | "transaction";
+ type JsonRecord = Record<string, unknown>;
+@@ -39,12 +39,12 @@ function nestedAddress(value: unknown): string | null {
+ 
+ async function fetchExplorer(path: string): Promise<unknown> {
+   const requestOptions = {
+-    headers: { accept: "application/json" },
++    headers: getBlockscoutHeaders(),
+     // Next.js supports a short upstream cache for public indexed data.
+     next: { revalidate: 15 },
+     signal: AbortSignal.timeout(8_000),
+   } as RequestInit & { next: { revalidate: number } };
+-  const response = await fetch(`${ROBINHOOD_CHAIN.explorerUrl}/api/v2${path}`, requestOptions);
++  const response = await fetch(getBlockscoutApiUrl(path), requestOptions);
+   if (response.status === 404) throw new ExplorerError("No matching record was found on the Robinhood Chain explorer.", 404);
+   if (response.status === 429) throw new ExplorerError("The explorer is rate-limiting requests. Wait briefly and retry.", 429);
+   if (!response.ok) throw new ExplorerError(`The explorer returned HTTP ${response.status}.`);
+@@ -93,6 +93,8 @@ export type ExplorerResult = {
+   source: string;
+   summary: Record<string, string | number | boolean | null>;
+   recentTransactions?: Array<Record<string, string | null>>;
++  tokenBalances?: Array<Record<string, string | null>>;
++  recentTokenTransfers?: Array<Record<string, string | null>>;
+   raw: unknown;
+ };
+ 
+@@ -120,11 +122,14 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
+       to,
+       valueEth: weiToEth(getString(raw, "value")),
+       feeWei: getString(raw, "fee"),
++      gasLimit: getString(raw, "gas_limit"),
+       gasUsed: getString(raw, "gas_used"),
+       gasPriceWei: getString(raw, "gas_price"),
+-      method: getString(raw, "method", "decoded_input"),
++      transactionType: getString(raw, "type"),
++      method: getString(raw, "method", "decoded_input", "function_name"),
++      revertReason: getString(raw, "revert_reason", "error"),
+     };
+-    return { kind, identifier: hash, explorerUrl: `${base}/tx/${hash}`, fetchedAt, source: "Robinhood Chain Blockscout API", summary, raw };
++    return { kind, identifier: hash, explorerUrl: `${base}/tx/${hash}`, fetchedAt, source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, raw };
+   }
+ 
+   const address = checkedAddress(identifier);
+@@ -145,12 +150,14 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
+       type: getString(raw, "type"),
+       verified: typeof raw.is_verified === "boolean" ? raw.is_verified : null,
+     };
+-    return { kind, identifier: address, explorerUrl: `${base}/token/${address}`, fetchedAt, source: "Robinhood Chain Blockscout API", summary, raw };
++    return { kind, identifier: address, explorerUrl: `${base}/token/${address}`, fetchedAt, source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, raw };
+   }
+ 
+-  const [addressRaw, transactionsRaw] = await Promise.all([
++  const [addressRaw, transactionsRaw, tokenBalancesRaw, tokenTransfersRaw] = await Promise.all([
+     fetchExplorer(`/addresses/${address}`),
+     fetchExplorer(`/addresses/${address}/transactions?items_count=8`).catch(() => null),
++    fetchExplorer(`/addresses/${address}/token-balances`).catch(() => null),
++    fetchExplorer(`/addresses/${address}/token-transfers?type=ERC-20&items_count=8`).catch(() => null),
+   ]);
+   if (!isRecord(addressRaw)) throw new ExplorerError("Explorer returned an unexpected address response.");
+ 
+@@ -166,6 +173,28 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
+     valueEth: weiToEth(getString(tx, "value")),
+     block: getString(tx, "block_number"),
+   }));
++  const tokenBalances = Array.isArray(tokenBalancesRaw) ? tokenBalancesRaw.slice(0, 20).filter(isRecord).map((item) => {
++    const token = isRecord(item.token) ? item.token : {};
++    return {
++      token: getString(token, "name", "symbol") ?? "Unknown token",
++      symbol: getString(token, "symbol"),
++      contract: getString(token, "address", "address_hash"),
++      balance: getString(item, "value", "balance"),
++      decimals: getString(token, "decimals"),
++    };
++  }) : [];
++  const transferItems = isRecord(tokenTransfersRaw) && Array.isArray(tokenTransfersRaw.items) ? tokenTransfersRaw.items : [];
++  const recentTokenTransfers = transferItems.slice(0, 8).filter(isRecord).map((item) => {
++    const token = isRecord(item.token) ? item.token : {};
++    return {
++      hash: getString(item, "transaction_hash", "tx_hash"),
++      timestamp: getString(item, "timestamp"),
++      from: nestedAddress(item.from),
++      to: nestedAddress(item.to),
++      amount: getString(item, "total", "amount", "value"),
++      token: getString(token, "symbol", "name") ?? "Token",
++    };
++  });
+   const summary = {
+     address: getString(addressRaw, "hash", "address_hash") ?? address,
+     name: getString(addressRaw, "name") ?? "Unnamed address",
+@@ -177,6 +206,6 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
+   };
+   return {
+     kind, identifier: address, explorerUrl: `${base}/address/${address}`, fetchedAt,
+-    source: "Robinhood Chain Blockscout API", summary, recentTransactions, raw: { address: addressRaw, transactions: transactionsRaw },
++    source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, recentTransactions, tokenBalances, recentTokenTransfers, raw: { address: addressRaw, transactions: transactionsRaw, tokenBalances: tokenBalancesRaw, tokenTransfers: tokenTransfersRaw },
+   };
+ }
