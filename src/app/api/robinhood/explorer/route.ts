@@ -40,6 +40,8 @@ export async function GET(request: Request) {
       source: result.source,
       summary: result.summary,
       recentTransactions: result.recentTransactions ?? [],
+      tokenBalances: result.tokenBalances ?? [],
+      recentTokenTransfers: result.recentTokenTransfers ?? [],
     };
     return NextResponse.json({ ok: true, data: publicResult }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

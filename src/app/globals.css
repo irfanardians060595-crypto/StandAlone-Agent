@@ -1128,3 +1128,35 @@ body { background: #050505; }
   .sa-comet { display: none !important; }
   .sa-intro-skip { animation: none !important; }
 }
+
+
+/* Robinhood Chain scanner and wallet analytics — additive, scoped styles */
+.rh-token-scanner { grid-column: 1 / -1; margin-top: 18px; }
+.rh-token-scanner .rh-panel-heading h2 { display:flex; align-items:center; gap:8px; }
+.rh-scanner-controls { display:flex; gap:9px; margin:17px 0 13px; flex-wrap:wrap; }
+.rh-scanner-query { display:flex; align-items:center; gap:9px; flex:1; min-width:230px; border:1px solid #383838; border-radius:9px; padding:0 11px; background:#090909; color:#999; }
+.rh-scanner-query input { flex:1; min-width:0; height:38px; border:0; outline:0; background:transparent; color:#eee; font:inherit; font-size:11px; }
+.rh-scanner-controls select { min-height:38px; border:1px solid #383838; border-radius:9px; padding:0 10px; background:#090909; color:#ddd; font:inherit; font-size:11px; }
+.rh-scanner-controls button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; padding:0 13px; min-height:38px; background:#eee; color:#080808; font-size:10px; font-weight:700; cursor:pointer; }
+.rh-scanner-controls button:disabled { opacity:.65; cursor:wait; }
+.rh-scanner-table-wrap { width:100%; overflow-x:auto; border:1px solid #292929; border-radius:10px; }
+.rh-scanner-table { width:100%; border-collapse:collapse; text-align:left; font-size:11px; }
+.rh-scanner-table th { color:#777; font-size:9px; text-transform:uppercase; letter-spacing:.08em; font-weight:600; }
+.rh-scanner-table th,.rh-scanner-table td { padding:12px 13px; border-bottom:1px solid #202020; white-space:nowrap; }
+.rh-scanner-table tbody tr:last-child td { border-bottom:0; }
+.rh-scanner-table td:first-child { min-width:150px; white-space:normal; }
+.rh-scanner-table td strong,.rh-scanner-table td small { display:block; }
+.rh-scanner-table td small { margin-top:4px; color:#777; font-size:9px; }
+.rh-scanner-table td a { display:inline-flex; align-items:center; gap:5px; color:#b9e8dc; text-decoration:none; }
+.rh-wallet-analytics { margin-top:18px; padding-top:16px; border-top:1px solid #292929; }
+.rh-wallet-analytics h4 { display:flex; align-items:center; gap:7px; margin:0 0 12px; font-size:11px; }
+.rh-wallet-analytics-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.rh-wallet-analytics-grid > div { padding:11px; border:1px solid #292929; border-radius:9px; background:#080808; min-width:0; }
+.rh-wallet-analytics-grid span,.rh-wallet-analytics-grid strong { display:block; }
+.rh-wallet-analytics-grid span { color:#777; font-size:9px; }
+.rh-wallet-analytics-grid strong { margin-top:6px; font-size:12px; overflow-wrap:anywhere; }
+.rh-wallet-list { display:grid; gap:0; margin-top:14px; }
+.rh-wallet-list > strong { margin-bottom:7px; font-size:10px; color:#ccc; }
+.rh-wallet-list > div { display:grid; grid-template-columns:minmax(0,1fr) minmax(90px,.7fr) minmax(80px,.5fr); align-items:center; gap:9px; padding:9px 0; border-top:1px solid #202020; font-size:10px; }
+.rh-wallet-list code,.rh-wallet-list small { color:#8d8d8d; font-size:9px; overflow-wrap:anywhere; }
+@media(max-width:620px) { .rh-wallet-analytics-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .rh-wallet-list > div { grid-template-columns:1fr auto; } .rh-wallet-list small { grid-column:1/-1; } .rh-scanner-controls select { flex:1; } .rh-scanner-controls button { flex:1; } }

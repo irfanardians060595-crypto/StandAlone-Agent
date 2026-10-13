@@ -5,7 +5,7 @@ export const ROBINHOOD_CHAIN = {
   currencySymbol: "ETH",
   rpcUrl: "https://robinhood-mainnet.g.alchemy.com/v2",
   explorerUrl: "https://robinhoodchain.blockscout.com",
-  apiUrl: "https://api.blockscout.com/4663/api/v2",
+  proApiBaseUrl: "https://api.blockscout.com/4663/api/v2",
 } as const;
 
 /** Server-only: never import this helper into a Client Component. */
@@ -20,4 +20,17 @@ export function getRobinhoodRpcUrl(): string {
   }
 
   return `${ROBINHOOD_CHAIN.rpcUrl}/${apiKey.trim()}`;
+}
+
+/** Build a server-side Blockscout API URL. Prefer the authenticated PRO gateway when configured. */
+export function getBlockscoutApiUrl(path: string): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const key = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
+  if (key) return `${ROBINHOOD_CHAIN.proApiBaseUrl}${cleanPath}`;
+  return `${ROBINHOOD_CHAIN.explorerUrl}/api/v2${cleanPath}`;
+}
+
+export function getBlockscoutHeaders(): HeadersInit {
+  const key = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
+  return key ? { accept: "application/json", authorization: `Bearer ${key}` } : { accept: "application/json" };
 }

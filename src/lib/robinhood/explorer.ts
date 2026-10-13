@@ -1,4 +1,4 @@
-import { ROBINHOOD_CHAIN } from "./config";
+import { getBlockscoutApiUrl, getBlockscoutHeaders, ROBINHOOD_CHAIN } from "./config";
 
 export type ExplorerKind = "token" | "address" | "transaction";
 type JsonRecord = Record<string, unknown>;
@@ -38,30 +38,13 @@ function nestedAddress(value: unknown): string | null {
 }
 
 async function fetchExplorer(path: string): Promise<unknown> {
-  const apiKey = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
-  if (!apiKey) {
-    throw new ExplorerError(
-      "Blockscout API is not configured. Add BLOCKSCOUT_PRO_API_KEY to the server environment and restart the app.",
-      503,
-    );
-  }
-
   const requestOptions = {
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
+    headers: getBlockscoutHeaders(),
     // Next.js supports a short upstream cache for public indexed data.
     next: { revalidate: 15 },
     signal: AbortSignal.timeout(8_000),
   } as RequestInit & { next: { revalidate: number } };
-  const response = await fetch(`${ROBINHOOD_CHAIN.apiUrl}${path}`, requestOptions);
-  if (response.status === 401 || response.status === 403) {
-    throw new ExplorerError(
-      "Blockscout denied the API request. Check that BLOCKSCOUT_PRO_API_KEY is valid and enabled for Robinhood Chain.",
-      response.status,
-    );
-  }
+  const response = await fetch(getBlockscoutApiUrl(path), requestOptions);
   if (response.status === 404) throw new ExplorerError("No matching record was found on the Robinhood Chain explorer.", 404);
   if (response.status === 429) throw new ExplorerError("The explorer is rate-limiting requests. Wait briefly and retry.", 429);
   if (!response.ok) throw new ExplorerError(`The explorer returned HTTP ${response.status}.`);
@@ -110,6 +93,8 @@ export type ExplorerResult = {
   source: string;
   summary: Record<string, string | number | boolean | null>;
   recentTransactions?: Array<Record<string, string | null>>;
+  tokenBalances?: Array<Record<string, string | null>>;
+  recentTokenTransfers?: Array<Record<string, string | null>>;
   raw: unknown;
 };
 
@@ -141,7 +126,7 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
       gasPriceWei: getString(raw, "gas_price"),
       method: getString(raw, "method", "decoded_input"),
     };
-    return { kind, identifier: hash, explorerUrl: `${base}/tx/${hash}`, fetchedAt, source: "Robinhood Chain Blockscout API", summary, raw };
+    return { kind, identifier: hash, explorerUrl: `${base}/tx/${hash}`, fetchedAt, source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, raw };
   }
 
   const address = checkedAddress(identifier);
@@ -162,12 +147,14 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
       type: getString(raw, "type"),
       verified: typeof raw.is_verified === "boolean" ? raw.is_verified : null,
     };
-    return { kind, identifier: address, explorerUrl: `${base}/token/${address}`, fetchedAt, source: "Robinhood Chain Blockscout API", summary, raw };
+    return { kind, identifier: address, explorerUrl: `${base}/token/${address}`, fetchedAt, source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, raw };
   }
 
-  const [addressRaw, transactionsRaw] = await Promise.all([
+  const [addressRaw, transactionsRaw, tokenBalancesRaw, tokenTransfersRaw] = await Promise.all([
     fetchExplorer(`/addresses/${address}`),
     fetchExplorer(`/addresses/${address}/transactions?items_count=8`).catch(() => null),
+    fetchExplorer(`/addresses/${address}/token-balances`).catch(() => null),
+    fetchExplorer(`/addresses/${address}/token-transfers?type=ERC-20&items_count=8`).catch(() => null),
   ]);
   if (!isRecord(addressRaw)) throw new ExplorerError("Explorer returned an unexpected address response.");
 
@@ -183,6 +170,28 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
     valueEth: weiToEth(getString(tx, "value")),
     block: getString(tx, "block_number"),
   }));
+  const tokenBalances = Array.isArray(tokenBalancesRaw) ? tokenBalancesRaw.slice(0, 20).filter(isRecord).map((item) => {
+    const token = isRecord(item.token) ? item.token : {};
+    return {
+      token: getString(token, "name", "symbol") ?? "Unknown token",
+      symbol: getString(token, "symbol"),
+      contract: getString(token, "address", "address_hash"),
+      balance: getString(item, "value", "balance"),
+      decimals: getString(token, "decimals"),
+    };
+  }) : [];
+  const transferItems = isRecord(tokenTransfersRaw) && Array.isArray(tokenTransfersRaw.items) ? tokenTransfersRaw.items : [];
+  const recentTokenTransfers = transferItems.slice(0, 8).filter(isRecord).map((item) => {
+    const token = isRecord(item.token) ? item.token : {};
+    return {
+      hash: getString(item, "transaction_hash", "tx_hash"),
+      timestamp: getString(item, "timestamp"),
+      from: nestedAddress(item.from),
+      to: nestedAddress(item.to),
+      amount: getString(item, "total", "amount", "value"),
+      token: getString(token, "symbol", "name") ?? "Token",
+    };
+  });
   const summary = {
     address: getString(addressRaw, "hash", "address_hash") ?? address,
     name: getString(addressRaw, "name") ?? "Unnamed address",
@@ -194,6 +203,6 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
   };
   return {
     kind, identifier: address, explorerUrl: `${base}/address/${address}`, fetchedAt,
-    source: "Robinhood Chain Blockscout API", summary, recentTransactions, raw: { address: addressRaw, transactions: transactionsRaw },
+    source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, recentTransactions, tokenBalances, recentTokenTransfers, raw: { address: addressRaw, transactions: transactionsRaw, tokenBalances: tokenBalancesRaw, tokenTransfers: tokenTransfersRaw },
   };
 }
