@@ -14,18 +14,18 @@ import {
   ChevronDown,
   CircleDot,
   Command,
-  ScanSearch,
-  Terminal,
-  ShieldAlert,
   FileText,
   Globe,
   Layers3,
   MessageSquare,
   Paperclip,
   Plus,
+  ScanSearch,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Terminal,
   Workflow,
   Zap,
 } from "lucide-react";
@@ -70,11 +70,11 @@ export default function Home() {
           <div className="sa-nav-links">
             <a href="#features">What it does</a>
             <a href="#workflow">How it works</a>
-            <Link href="/chain">Robinhood Chain <ArrowUpRight size={13} /></Link>
           </div>
           <div className="sa-nav-actions">
             <BrandHeaderLinks />
             <span className="sa-local-pill"><span /> Your own workspace</span>
+            <Link href="/chain" className="sa-nav-chain-cta">Explore Robinhood <ArrowUpRight size={15} /></Link>
             <Link href="/chat" className="sa-nav-cta">Open workspace <ArrowUpRight size={15} /></Link>
           </div>
         </nav>
@@ -227,6 +227,7 @@ export default function Home() {
 
         <div className="sa-chain-info-footnote"><ShieldCheck size={15} /><p>Designed for public-data exploration. Availability and detail depend on the explorer and RPC sources; missing information is not treated as proof of safety.</p><Link href="/chain" className="sa-chain-info-footer-cta">Open Robinhood Chain tools <ArrowRight size={15} /></Link></div>
       </section>
+
 
       <section className="sa-features" id="features">
         <div className="sa-section-heading"><div><span className="sa-section-kicker">THE WORKSPACE</span><h2>Everything in its<br /><em>right place.</em></h2></div><p>Less interface noise. More room to think, explore, and get things done with an assistant that works alongside you.</p></div>

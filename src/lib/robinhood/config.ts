@@ -26,8 +26,10 @@ export function getRobinhoodRpcUrl(): string {
 export function getBlockscoutApiUrl(path: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   const key = process.env.BLOCKSCOUT_PRO_API_KEY?.trim();
-  if (key) return `${ROBINHOOD_CHAIN.proApiBaseUrl}${cleanPath}`;
-  return `${ROBINHOOD_CHAIN.explorerUrl}/api/v2${cleanPath}`;
+  if (!key) {
+    throw new Error("Blockscout API access is not configured. Add BLOCKSCOUT_PRO_API_KEY to the server environment, then restart/redeploy. Public explorer pages may work while API endpoints return HTTP 403.");
+  }
+  return `${ROBINHOOD_CHAIN.proApiBaseUrl}${cleanPath}`;
 }
 
 export function getBlockscoutHeaders(): HeadersInit {
