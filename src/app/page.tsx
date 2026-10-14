@@ -14,6 +14,9 @@ import {
   ChevronDown,
   CircleDot,
   Command,
+  ScanSearch,
+  Terminal,
+  ShieldAlert,
   FileText,
   Globe,
   Layers3,
@@ -67,11 +70,11 @@ export default function Home() {
           <div className="sa-nav-links">
             <a href="#features">What it does</a>
             <a href="#workflow">How it works</a>
+            <Link href="/chain">Robinhood Chain <ArrowUpRight size={13} /></Link>
           </div>
           <div className="sa-nav-actions">
             <BrandHeaderLinks />
             <span className="sa-local-pill"><span /> Your own workspace</span>
-            <Link href="/chain" className="sa-nav-chain-cta">Explore Robinhood <ArrowUpRight size={15} /></Link>
             <Link href="/chat" className="sa-nav-cta">Open workspace <ArrowUpRight size={15} /></Link>
           </div>
         </nav>
@@ -164,6 +167,65 @@ export default function Home() {
       <section className="sa-chain-preview" id="robinhood-chain">
         <div className="sa-chain-preview-heading"><span className="sa-section-kicker">ONCHAIN LAYER</span><h2>Built for <em>Robinhood Chain.</em></h2><p>Read network status and explore public onchain records without changing the core AI workspace.</p></div>
         <ChainPulseMini compact />
+      </section>
+
+      <section className="sa-chain-info" id="chain-capabilities" aria-labelledby="sa-chain-info-title">
+        <div className="sa-chain-info-heading">
+          <div>
+            <span className="sa-section-kicker">ROBINHOOD CHAIN · CAPABILITIES</span>
+            <h2 id="sa-chain-info-title">Understand the chain.<br /><em>Explore with context.</em></h2>
+          </div>
+          <div className="sa-chain-info-intro">
+            <p>StandAlone Agent brings public Robinhood Chain data and read-only research tools into one place. Learn what each tool is designed to help you do, then open the Chain workspace to use it.</p>
+            <Link href="/chain" className="sa-chain-info-main-cta">Explore Robinhood Chain <ArrowUpRight size={15} /></Link>
+          </div>
+        </div>
+
+        <div className="sa-chain-info-grid">
+          <article className="sa-chain-info-card">
+            <div className="sa-chain-info-card-top"><span className="sa-chain-info-icon"><Activity size={19} /></span><span>01</span></div>
+            <h3>Network Pulse &amp; Status</h3>
+            <p>Get a quick view of Robinhood Chain Mainnet, including available block information, gas price, recent block activity, and RPC response health. Values depend on the configured data source and may be unavailable when a service cannot respond.</p>
+            <Link href="/chain" className="sa-chain-info-link">View network tools <ArrowUpRight size={15} /></Link>
+          </article>
+
+          <article className="sa-chain-info-card">
+            <div className="sa-chain-info-card-top"><span className="sa-chain-info-icon"><Search size={19} /></span><span>02</span></div>
+            <h3>Token, Wallet &amp; Transaction Explorer</h3>
+            <p>Look up a token contract, public wallet or address, or transaction hash. Review indexed details and decoded transaction fields when the explorer provides them, then follow the source link for more context.</p>
+            <Link href="/chain#explorer" className="sa-chain-info-link">Explore on-chain records <ArrowUpRight size={15} /></Link>
+          </article>
+
+          <article className="sa-chain-info-card">
+            <div className="sa-chain-info-card-top"><span className="sa-chain-info-icon"><ScanSearch size={19} /></span><span>03</span></div>
+            <h3>Token Scanner</h3>
+            <p>Browse indexed ERC-20 tokens on Robinhood Chain Mainnet and filter by token name, symbol, or contract. Sort available results by holder count, market cap, or token price when that information is provided by the indexer.</p>
+            <Link href="/chain#token-scanner" className="sa-chain-info-link">Explore token data <ArrowUpRight size={15} /></Link>
+          </article>
+
+          <article className="sa-chain-info-card">
+            <div className="sa-chain-info-card-top"><span className="sa-chain-info-icon"><ShieldAlert size={19} /></span><span>04</span></div>
+            <h3>Contract &amp; Token Risk Analysis</h3>
+            <p>Review available contract verification details, compiler metadata, and potentially privileged ABI functions. The report is a preliminary, evidence-based heuristic—not a formal security audit or a guarantee that a token is safe or malicious.</p>
+            <Link href="/chain#risk-analyzer" className="sa-chain-info-link">Review risk-analysis tools <ArrowUpRight size={15} /></Link>
+          </article>
+
+          <article className="sa-chain-info-card">
+            <div className="sa-chain-info-card-top"><span className="sa-chain-info-icon"><Sparkles size={19} /></span><span>05</span></div>
+            <h3>Research with AI</h3>
+            <p>Continue a chain question in the existing AI workspace. Use the assistant to help interpret available network details, token information, or transaction records while keeping conclusions tied to the evidence supplied.</p>
+            <Link href="/chat" className="sa-chain-info-link">Ask the AI workspace <ArrowUpRight size={15} /></Link>
+          </article>
+
+          <article className="sa-chain-info-card">
+            <div className="sa-chain-info-card-top"><span className="sa-chain-info-icon"><Terminal size={19} /></span><span>06</span></div>
+            <h3>Developer Toolkit</h3>
+            <p>Run a limited set of read-only JSON-RPC checks, such as retrieving the chain ID, latest block number, or gas price. Write methods and transaction submission are blocked; the tools do not connect a wallet or sign transactions.</p>
+            <Link href="/chain#developer-toolkit" className="sa-chain-info-link">Open developer tools <ArrowUpRight size={15} /></Link>
+          </article>
+        </div>
+
+        <div className="sa-chain-info-footnote"><ShieldCheck size={15} /><p>Designed for public-data exploration. Availability and detail depend on the explorer and RPC sources; missing information is not treated as proof of safety.</p><Link href="/chain" className="sa-chain-info-footer-cta">Open Robinhood Chain tools <ArrowRight size={15} /></Link></div>
       </section>
 
       <section className="sa-features" id="features">

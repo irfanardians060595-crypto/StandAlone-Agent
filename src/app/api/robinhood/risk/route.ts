@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     const label = scoreClamped >= 50 ? "Elevated indicators" : scoreClamped >= 25 ? "Needs review" : "Limited indicators detected";
     return NextResponse.json({ ok: true, data: { address, token: { name: str(tokenData.name), symbol: str(tokenData.symbol), holders: holderCount, verified: verified || null }, contract: { verified, compilerVersion: str(contractData.compiler_version), language: str(contractData.language), proxy: contractData.is_proxy === true ? true : contractData.is_proxy === false ? false : null }, score: scoreClamped, label, findings, functions: functions.slice(0, 80), fetchedAt: new Date().toISOString(), source: "Robinhood Chain Blockscout indexed data", disclaimer: "Heuristic triage only; not a security audit or guarantee. Missing indexed data is not treated as proof of safety." } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error && error.name === "TimeoutError" ? "Risk analysis timed out while requesting indexed contract data." : error instanceof Error && error.message.includes("BLOCKSCOUT_PRO_API_KEY") ? error.message : "Could not retrieve enough indexed data to analyze this contract. Check Blockscout API access and retry.";
+    const message = error instanceof Error && error.name === "TimeoutError" ? "Risk analysis timed out while requesting indexed contract data." : "Could not retrieve enough indexed data to analyze this contract.";
     return NextResponse.json({ ok: false, error: message }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }

@@ -126,8 +126,7 @@ export async function exploreRobinhoodChain(kind: ExplorerKind, identifier: stri
       gasUsed: getString(raw, "gas_used"),
       gasPriceWei: getString(raw, "gas_price"),
       transactionType: getString(raw, "type"),
-      method: getString(raw, "method", "function_name", "decoded_method"),
-      inputData: getString(raw, "raw_input", "input", "input_data"),
+      method: getString(raw, "method", "decoded_input", "function_name"),
       revertReason: getString(raw, "revert_reason", "error"),
     };
     return { kind, identifier: hash, explorerUrl: `${base}/tx/${hash}`, fetchedAt, source: process.env.BLOCKSCOUT_PRO_API_KEY ? "Blockscout PRO API · Robinhood Chain" : "Robinhood Chain Blockscout API", summary, raw };

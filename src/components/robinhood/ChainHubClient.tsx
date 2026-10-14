@@ -43,21 +43,6 @@ function displayValue(value: string | number | boolean | null) {
   return String(value);
 }
 
-function decodeKnownCall(input: string | null | undefined): string[] {
-  if (!input || !/^0x[0-9a-fA-F]*$/.test(input) || input.length < 10) return [];
-  const selector = input.slice(0, 10).toLowerCase();
-  const body = input.slice(10);
-  const word = (index: number) => body.slice(index * 64, (index + 1) * 64);
-  const asAddress = (value: string) => value.length === 64 ? `0x${value.slice(-40)}` : "";
-  const asInteger = (value: string) => { try { return BigInt(`0x${value}`).toString(10); } catch { return "unavailable"; } };
-  if (selector === "0xa9059cbb" && body.length >= 128) return [`transfer(to=${asAddress(word(0))}, amount=${asInteger(word(1))} base units)`];
-  if (selector === "0x095ea7b3" && body.length >= 128) return [`approve(spender=${asAddress(word(0))}, amount=${asInteger(word(1))} base units)`];
-  if (selector === "0x23b872dd" && body.length >= 192) return [`transferFrom(from=${asAddress(word(0))}, to=${asAddress(word(1))}, amount=${asInteger(word(2))} base units)`];
-  if (selector === "0x70a08231" && body.length >= 64) return [`balanceOf(owner=${asAddress(word(0))})`];
-  if (selector === "0xdd62ed3e" && body.length >= 128) return [`allowance(owner=${asAddress(word(0))}, spender=${asAddress(word(1))})`];
-  return [];
-}
-
 export function ChainHubClient() {
   const [kind, setKind] = useState<ExplorerKind>("token");
   const [query, setQuery] = useState("");
@@ -157,7 +142,7 @@ export function ChainHubClient() {
       <div className="rh-chain-content">
         <header className="rh-chain-nav">
           <Link href="/" className="rh-chain-brand"><StandAloneLogo size={35} className="rh-chain-logo" priority /><span>StandAlone <b>Agent</b><small>ROBINHOOD CHAIN TOOLS</small></span></Link>
-          <div className="rh-chain-nav-links"><BrandHeaderLinks /><span className="rh-chain-pill"><i /> MAINNET · 4663</span><a href="#explorer" className="rh-chain-explore-cta">Explore Robinhood <ArrowUpRight size={14} /></a><Link href="/chat" className="rh-chain-workspace-link">Open workspace <ArrowUpRight size={14} /></Link></div>
+          <div className="rh-chain-nav-links"><BrandHeaderLinks /><span className="rh-chain-pill"><i /> MAINNET · 4663</span><Link href="/chat" className="rh-chain-workspace-link">Open workspace <ArrowUpRight size={14} /></Link><a href="#explorer" className="rh-chain-explore-cta">Explore Robinhood <ArrowUpRight size={14} /></a></div>
         </header>
 
         <section className="rh-chain-hero">
@@ -185,8 +170,7 @@ export function ChainHubClient() {
               {lookupError && <div className="rh-error-card"><CircleAlert size={16} /><div><strong>Could not load this record</strong><p>{lookupError}</p></div></div>}
               {result && <div className="rh-explorer-result">
                 <div className="rh-result-heading"><div><span className="rh-result-type">{result.kind.toUpperCase()} RESULT</span><h3>{String(result.summary.name ?? result.summary.symbol ?? (result.kind === "transaction" ? "Transaction detail" : result.kind === "address" ? "Address detail" : "Token detail"))}</h3><code>{shorten(result.identifier, 14, 12)}</code></div><a href={result.explorerUrl} target="_blank" rel="noreferrer" className="rh-external-link">Open explorer <ExternalLink size={13} /></a></div>
-                <div className="rh-result-fields">{Object.entries(result.summary as Record<string, string | number | boolean | null>).filter(([key]) => key !== "inputData").map(([key, value]) => <div className="rh-result-field" key={key}><span>{key.replace(/([A-Z])/g, " $1").replace(/_/g, " ")}</span><strong>{displayValue(value)}</strong></div>)}</div>
-                {result.kind === "transaction" && <div className="rh-transaction-decoder"><h4><Code2 size={14} /> Transaction Decoder & Debugger</h4><div className="rh-decoder-metrics"><div><span>Function / method</span><strong>{String(result.summary.method ?? "Unknown or not decoded")}</strong></div><div><span>Function selector</span><strong>{typeof result.summary.inputData === "string" && result.summary.inputData.length >= 10 ? result.summary.inputData.slice(0, 10) : "Unavailable"}</strong></div><div><span>Calldata size</span><strong>{typeof result.summary.inputData === "string" && result.summary.inputData.startsWith("0x") ? `${Math.max(0, (result.summary.inputData.length - 2) / 2)} bytes` : "Unavailable"}</strong></div></div>{typeof result.summary.inputData === "string" && result.summary.inputData.startsWith("0x") && <><div className="rh-decoded-call"><span>Known selector interpretation</span>{decodeKnownCall(result.summary.inputData).length ? decodeKnownCall(result.summary.inputData).map((line) => <code key={line}>{line}</code>) : <p>No built-in decoder for this selector. Use the AI explanation or the linked explorer; no parameters are guessed.</p>}</div><details className="rh-calldata-details"><summary>View raw calldata</summary><code>{result.summary.inputData}</code></details></>}<button type="button" className="rh-risk-ai-button" onClick={() => startResearchPrompt(`Explain this Robinhood Chain transaction in developer-friendly terms. Distinguish indexed facts from inference and do not invent decoded parameters. Transaction: ${result.identifier}. Indexed summary: ${JSON.stringify(result.summary)}. Raw calldata: ${String(result.summary.inputData ?? "not available")}. Explain method selector and any available revert reason.`)}><Sparkles size={14} /> Explain transaction with AI <ArrowUpRight size={13} /></button></div>}
+                <div className="rh-result-fields">{Object.entries(result.summary as Record<string, string | number | boolean | null>).map(([key, value]) => <div className="rh-result-field" key={key}><span>{key.replace(/([A-Z])/g, " $1").replace(/_/g, " ")}</span><strong>{displayValue(value)}</strong></div>)}</div>
                 {result.recentTransactions && result.recentTransactions.length > 0 && <div className="rh-recent-txs"><h4><Clock3 size={14} /> Recent transactions</h4>{result.recentTransactions.map((tx, index) => <div key={`${tx.hash ?? "tx"}-${index}`} className="rh-tx-row"><span>{shorten(tx.hash, 13, 8)}</span><span>{tx.status ?? "Indexed"}</span><span>{tx.block ?? "—"}</span>{tx.hash && <a href={`https://robinhoodchain.blockscout.com/tx/${tx.hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction"><ArrowUpRight size={13} /></a>}</div>)}</div>}
                 {result.kind === "address" && <div className="rh-wallet-analytics">
                   <h4><Wallet size={14} /> Wallet analytics</h4>
@@ -197,16 +181,6 @@ export function ChainHubClient() {
                 <div className="rh-result-footer"><span>Fetched {new Date(result.fetchedAt).toLocaleString()}</span><span>{result.source}</span></div>
               </div>}
               {!result && !lookupError && <div className="rh-explorer-empty"><div className="rh-empty-symbol"><Search size={20} /></div><strong>Start with an onchain identifier</strong><p>Paste a public address or transaction hash to load indexed explorer data. We do not fabricate data for empty states.</p></div>}
-              <div className="rh-token-directory"><div className="rh-token-directory-heading"><div><span className="rh-eyebrow">LIVE INDEXED TOKEN DATA</span><h3><ScanSearch size={17} /> Token directory & scanner</h3><p>Token search and indexed listings live in this same explorer panel.</p></div><span className="rh-icon-tile"><Coins size={17} /></span></div>
-                <form className="rh-scanner-controls" onSubmit={(event) => void loadScanner(event)}>
-                  <label className="rh-scanner-query"><Search size={15} /><input value={scannerQuery} onChange={(event) => setScannerQuery(event.target.value)} placeholder="Filter by token name, symbol, or contract" aria-label="Filter tokens" /></label>
-                  <select value={scannerSort} onChange={(event) => setScannerSort(event.target.value)} aria-label="Sort tokens"><option value="holders_count">Most holders</option><option value="circulating_market_cap">Market cap</option><option value="fiat_value">Token price</option></select>
-                  <button type="submit" disabled={scannerLoading}>{scannerLoading ? <RefreshCw size={14} className="rh-spin" /> : <><ScanSearch size={14} /> Scan tokens</>}</button>
-                </form>
-                {scannerError && <div className="rh-error-card"><CircleAlert size={16} /><div><strong>Token index unavailable</strong><p>{scannerError}</p></div></div>}
-                {scannerTokens.length > 0 && <><div className="rh-scanner-table-wrap"><table className="rh-scanner-table"><thead><tr><th>Token</th><th>Holders</th><th>Market cap</th><th>Contract</th></tr></thead><tbody>{scannerTokens.map((token) => <tr key={token.address}><td><strong>{token.name}</strong><small>{token.symbol ?? "—"} · {token.type}</small></td><td>{token.holders ?? "—"}</td><td>{token.marketCap ? `$${Number(token.marketCap).toLocaleString()}` : "—"}</td><td><a href={token.explorerUrl} target="_blank" rel="noreferrer">{shorten(token.address, 8, 6)} <ExternalLink size={12} /></a></td></tr>)}</tbody></table></div><div className="rh-result-footer"><span>{scannerTokens.length} tokens returned</span><span>{scannerFetchedAt ? `Fetched ${new Date(scannerFetchedAt).toLocaleString()}` : ""}</span></div></>}
-                {!scannerTokens.length && !scannerError && <div className="rh-explorer-empty rh-scanner-empty"><div className="rh-empty-symbol"><ScanSearch size={18} /></div><strong>Browse indexed tokens</strong><p>Choose a sort mode and scan to request the latest token list.</p></div>}
-              </div>
             </section>
           </div>
 
@@ -231,6 +205,17 @@ export function ChainHubClient() {
           </aside>
         </div>
 
+          <section className="rh-explorer-panel rh-token-scanner" id="token-scanner">
+            <div className="rh-panel-heading"><div><span className="rh-eyebrow">LIVE INDEXED TOKEN DATA</span><h2><ScanSearch size={19} /> Token Scanner</h2><p>Browse indexed ERC-20 contracts on Robinhood Chain Mainnet. Results come from Blockscout, not simulated data.</p></div><span className="rh-icon-tile"><Coins size={18} /></span></div>
+            <form className="rh-scanner-controls" onSubmit={(event) => void loadScanner(event)}>
+              <label className="rh-scanner-query"><Search size={15} /><input value={scannerQuery} onChange={(event) => setScannerQuery(event.target.value)} placeholder="Filter by token name, symbol, or contract" aria-label="Filter tokens" /></label>
+              <select value={scannerSort} onChange={(event) => setScannerSort(event.target.value)} aria-label="Sort tokens"><option value="holders_count">Most holders</option><option value="circulating_market_cap">Market cap</option><option value="fiat_value">Token price</option></select>
+              <button type="submit" disabled={scannerLoading}>{scannerLoading ? <RefreshCw size={14} className="rh-spin" /> : <><ScanSearch size={14} /> Scan tokens</>}</button>
+            </form>
+            {scannerError && <div className="rh-error-card"><CircleAlert size={16} /><div><strong>Scanner unavailable</strong><p>{scannerError}</p></div></div>}
+            {scannerTokens.length > 0 && <><div className="rh-scanner-table-wrap"><table className="rh-scanner-table"><thead><tr><th>Token</th><th>Holders</th><th>Market cap</th><th>Contract</th></tr></thead><tbody>{scannerTokens.map((token) => <tr key={token.address}><td><strong>{token.name}</strong><small>{token.symbol ?? "—"} · {token.type}</small></td><td>{token.holders ?? "—"}</td><td>{token.marketCap ? `$${Number(token.marketCap).toLocaleString()}` : "—"}</td><td><a href={token.explorerUrl} target="_blank" rel="noreferrer">{shorten(token.address, 8, 6)} <ExternalLink size={12} /></a></td></tr>)}</tbody></table></div><div className="rh-result-footer"><span>{scannerTokens.length} tokens returned</span><span>{scannerFetchedAt ? `Fetched ${new Date(scannerFetchedAt).toLocaleString()}` : ""}</span></div></>}
+            {!scannerTokens.length && !scannerError && <div className="rh-explorer-empty"><div className="rh-empty-symbol"><ScanSearch size={20} /></div><strong>Ready to scan Robinhood Chain</strong><p>Choose a sort mode and click Scan tokens to request the latest indexed ERC-20 token list.</p></div>}
+          </section>
 
           <section className="rh-explorer-panel rh-feature-panel" id="risk-analyzer">
             <div className="rh-panel-heading"><div><span className="rh-eyebrow">EVIDENCE-BASED CONTRACT TRIAGE</span><h2><ShieldAlert size={19} /> AI Contract & Token Risk Analyzer</h2><p>Inspect indexed verification and ABI function names. This is a heuristic triage report, not an audit or safety guarantee.</p></div><span className="rh-icon-tile"><ShieldCheck size={18} /></span></div>
