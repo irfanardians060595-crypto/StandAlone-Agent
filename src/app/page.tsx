@@ -73,7 +73,6 @@ export default function Home() {
           </div>
           <div className="sa-nav-actions">
             <BrandHeaderLinks />
-            <span className="sa-local-pill"><span /> Your own workspace</span>
             <Link href="/chain" className="sa-nav-chain-cta">Explore Robinhood <ArrowUpRight size={15} /></Link>
             <Link href="/chat" className="sa-nav-cta">Open workspace <ArrowUpRight size={15} /></Link>
           </div>
