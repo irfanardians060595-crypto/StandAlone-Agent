@@ -249,7 +249,7 @@ export default function Home() {
         <div className="sa-cta-decoration" aria-hidden="true"><span /><span /><span /><span /><span /></div>
       </section>
 
-      <footer className="sa-footer"><Link href="/" className="sa-footer-brand"><StandAloneLogo size={34} className="sa-footer-logo" /> StandAlone Agent</Link><p>Independent by design. Helpful by default.</p><div><Link href="/chat">Workspace</Link><a href="https://github.com/thorchh/agent-starter" target="_blank" rel="noreferrer">Open-source foundation <ArrowUpRight size={12} /></a></div></footer>
+      <footer className="sa-footer"><Link href="/" className="sa-footer-brand"><StandAloneLogo size={34} className="sa-footer-logo" /> StandAlone Agent</Link><p>Independent by design. Helpful by default.</p><div><Link href="/chat">Workspace</Link><a href="https://x.com/standaloneagent" target="_blank" rel="noreferrer">Twitter <ArrowUpRight size={12} /></a></div></footer>
     </main>
   );
 }
