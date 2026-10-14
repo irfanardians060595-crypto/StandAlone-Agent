@@ -1216,6 +1216,83 @@ body { background: #050505; }
 .rh-decoded-call code { color:#c7e7dd; font-size:10px; overflow-wrap:anywhere; }
 .rh-decoded-call p { margin:0; color:#888; font-size:10px; line-height:1.7; }
 
+
+/* Premium motion layer for the landing-page capability cards. Keeps layout and content unchanged. */
+.sa-chain-info-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transform: translateZ(0);
+  transition: transform .38s cubic-bezier(.2,.75,.25,1), border-color .38s ease,
+    box-shadow .38s ease, background-color .38s ease;
+  animation: sa-capability-enter .72s cubic-bezier(.2,.7,.25,1) both;
+}
+.sa-chain-info-card:nth-child(1) { animation-delay: .04s; }
+.sa-chain-info-card:nth-child(2) { animation-delay: .11s; }
+.sa-chain-info-card:nth-child(3) { animation-delay: .18s; }
+.sa-chain-info-card:nth-child(4) { animation-delay: .25s; }
+.sa-chain-info-card:nth-child(5) { animation-delay: .32s; }
+.sa-chain-info-card:nth-child(6) { animation-delay: .39s; }
+.sa-chain-info-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at var(--sa-glow-x, 50%) var(--sa-glow-y, 0%), rgba(40, 220, 177, .12), transparent 62%);
+  transition: opacity .45s ease;
+}
+.sa-chain-info-card::after {
+  content: "";
+  position: absolute;
+  top: -65%;
+  left: -70%;
+  width: 42%;
+  height: 230%;
+  pointer-events: none;
+  transform: rotate(22deg) translateX(-160%);
+  background: linear-gradient(90deg, transparent, rgba(89, 255, 211, .075), transparent);
+  transition: transform .85s cubic-bezier(.2,.65,.2,1);
+}
+.sa-chain-info-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(57, 230, 190, .48);
+  background-color: rgba(10, 15, 14, .96);
+  box-shadow: 0 18px 48px rgba(0,0,0,.3), 0 0 0 1px rgba(57,230,190,.045), 0 0 28px rgba(33,210,168,.075);
+}
+.sa-chain-info-card:hover::before { opacity: 1; }
+.sa-chain-info-card:hover::after { transform: rotate(22deg) translateX(560%); }
+.sa-chain-info-icon {
+  position: relative;
+  transition: transform .38s cubic-bezier(.2,.75,.25,1), background .38s ease, color .38s ease, box-shadow .38s ease;
+}
+.sa-chain-info-card:hover .sa-chain-info-icon {
+  transform: translateY(-2px) scale(1.045);
+  background: #c8fff0;
+  box-shadow: 0 0 20px rgba(57,230,190,.16);
+}
+.sa-chain-info-card-top > span:last-child { transition: color .35s ease; }
+.sa-chain-info-card:hover .sa-chain-info-card-top > span:last-child { color: #54e9c5; }
+.sa-chain-info-card h3 { transition: color .35s ease; }
+.sa-chain-info-card:hover h3 { color: #fff; }
+.sa-chain-info-link { transition: color .3s ease, border-color .3s ease; }
+.sa-chain-info-card:hover .sa-chain-info-link { border-top-color: rgba(57,230,190,.24); color: #b8ffeb; }
+.sa-chain-info-link svg { transition: transform .3s cubic-bezier(.2,.75,.25,1), color .3s ease; }
+.sa-chain-info-card:hover .sa-chain-info-link svg { transform: translate(3px,-2px); color: #54e9c5; }
+.sa-chain-info-main-cta { transition: transform .25s ease, background .25s ease, box-shadow .25s ease; }
+.sa-chain-info-main-cta:hover { box-shadow: 0 5px 24px rgba(255,255,255,.12); }
+@keyframes sa-capability-enter {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-chain-info-card { animation: none; transition: none; }
+  .sa-chain-info-card::before, .sa-chain-info-card::after { transition: none; }
+  .sa-chain-info-icon, .sa-chain-info-link, .sa-chain-info-link svg, .sa-chain-info-main-cta { transition: none; }
+  .sa-chain-info-card:hover { transform: none; }
+}
+
 /* Landing page: explanatory Robinhood Chain feature section. Existing sections stay unchanged. */
 .sa-chain-info { max-width: 1180px; margin: 0 auto; padding: 10px 0 88px; position: relative; z-index: 2; }
 .sa-chain-info-heading { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,.82fr); align-items: end; gap: 26px 42px; margin-bottom: 25px; }
