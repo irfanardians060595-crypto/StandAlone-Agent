@@ -5,7 +5,7 @@
  * The header and on-chain pages read from this single file, so no UI files need edits.
  * Leave it as an empty string until the official contract address is confirmed.
  */
-export const CONTRACT_ADDRESS = "";
+export const CONTRACT_ADDRESS = "0x17d7fc7245a4d58b1234b3154c3fde4f22dca72b";
 
 const candidate = CONTRACT_ADDRESS.trim();
 export const IS_CONTRACT_ADDRESS_VALID = /^0x[a-fA-F0-9]{40}$/.test(candidate);
