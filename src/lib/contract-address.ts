@@ -5,7 +5,7 @@
  * The header and on-chain pages read from this single file, so no UI files need edits.
  * Leave it as an empty string until the official contract address is confirmed.
  */
-export const CONTRACT_ADDRESS = "Flywhell Soon";
+export const CONTRACT_ADDRESS = "0xf99125b8f811a1bd3096155eb4357d1966a7ce35";
 
 const candidate = CONTRACT_ADDRESS.trim();
 export const IS_CONTRACT_ADDRESS_VALID = /^0x[a-fA-F0-9]{40}$/.test(candidate);
